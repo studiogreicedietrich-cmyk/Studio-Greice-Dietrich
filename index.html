@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Clínica</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Nunito+Sans:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+:root { --nude:#F7EBE5; --areia:#E9D3C9; --rosa:#C4677F; --rosa-esc:#A94F68; --vinho:#4A2530; --branco:#FFFDFC; }
+* { box-sizing: border-box }
+body { margin:0; background:var(--nude); color:var(--vinho); font:16px/1.5 'Nunito Sans', system-ui, sans-serif }
+h1, h2 { font-family:'Cormorant Garamond', Georgia, serif; font-weight:600; margin:0 0 16px }
+h1 { font-size:2rem } h2 { font-size:1.6rem }
+.app { display:grid; grid-template-columns:240px 1fr; min-height:100vh }
+.menu { background:var(--branco); border-right:1px solid var(--areia); padding:24px 16px; display:flex; flex-direction:column; gap:4px }
+.menu button { text-align:left; background:none; color:var(--vinho); border:0; padding:10px 12px; border-radius:8px; cursor:pointer; font:inherit }
+.menu button:hover { background:var(--nude) }
+.menu button.ativo { background:var(--rosa); color:#fff }
+.menu .sair { margin-top:auto; color:var(--rosa-esc) }
+main { padding:32px; max-width:980px }
+input { font:inherit; padding:10px 12px; border:1px solid var(--areia); border-radius:8px; background:#fff; color:var(--vinho) }
+button { font:inherit; background:var(--rosa); color:#fff; border:0; padding:10px 16px; border-radius:8px; cursor:pointer }
+button:hover { background:var(--rosa-esc) }
+button.leve { background:var(--areia); color:var(--vinho) }
+:focus-visible { outline:3px solid var(--rosa-esc); outline-offset:2px }
+.cartao { background:var(--branco); border:1px solid var(--areia); border-radius:12px; padding:16px; margin-bottom:12px }
+.form { display:flex; flex-wrap:wrap; gap:10px; align-items:center }
+.linha { display:flex; justify-content:space-between; align-items:center }
+.vazio { color:#8a6a72 } .erro { color:#b3261e; margin:0 }
+.login { max-width:340px; margin:12vh auto; display:flex; flex-direction:column; gap:12px; padding:0 16px }
+@media (max-width:760px) { .app { grid-template-columns:1fr } .menu { flex-direction:row; flex-wrap:wrap; border-right:0; border-bottom:1px solid var(--areia) } .menu h2 { width:100% } main { padding:20px } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
+
+<script type="text/babel">
+// ====== CONFIGURAÇÃO: cole aqui os dados do seu Supabase (Project Settings > API) ======
+const SUPABASE_URL = 'COLE_AQUI_A_URL'        // ex.: https://abcdxyz.supabase.co
+const SUPABASE_ANON_KEY = 'COLE_AQUI_A_CHAVE_ANON' // chave "anon public"
+// ========================================================================================
+
+const { useState, useEffect } = React
+const configurado = !SUPABASE_URL.includes('COLE_AQUI') && !SUPABASE_ANON_KEY.includes('COLE_AQUI')
+const db = configurado ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null
+
+// [chave, rótulo, somenteAdmin]
+const MENU = [
+  ['painel', 'Painel'], ['agenda', 'Agenda'], ['clientes', 'Clientes'],
+  ['financeiro', 'Financeiro', true], ['compras', 'Compras', true],
+  ['pacotes', 'Pacotes e fidelidade', true], ['relatorios', 'Relatórios', true],
+  ['admin', 'Administrativo', true],
+]
+
+function Login() {
+  const [email, setEmail] = useState('')
+  const [senha, setSenha] = useState('')
+  const [erro, setErro] = useState('')
+  const entrar = async () => {
+    const { error } = await db.auth.signInWithPassword({ email, password: senha })
+    if (error) setErro('E-mail ou senha incorretos. Confira e tente de novo.')
+  }
+  return (
+    <div className="login">
+      <h1>Entrar na clínica</h1>
+      <input placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} />
+      <input placeholder="Senha" type="password" value={senha} onChange={e => setSenha(e.target.value)} />
+      {erro && <p className="erro">{erro}</p>}
+      <button onClick={entrar}>Entrar</button>
+    </div>
+  )
+}
+
+const vazioUnidade = { nome: '', endereco: '', telefone: '', cor: '#C4677F' }
+
+function Unidades() {
+  const [lista, setLista] = useState([])
+  const [form, setForm] = useState(vazioUnidade)
+  const carregar = async () => {
+    const { data } = await db.from('unidades').select('*').order('nome')
+    setLista(data || [])
+  }
+  useEffect(() => { carregar() }, [])
+  const salvar = async () => {
+    if (!form.nome.trim()) return
+    await db.from('unidades').insert(form)
+    setForm(vazioUnidade); carregar()
+  }
+  const alternar = async u => {
+    await db.from('unidades').update({ ativa: !u.ativa }).eq('id', u.id)
+    carregar()
+  }
+  const campo = k => e => setForm({ ...form, [k]: e.target.value })
+  return (
+    <>
+      <h1>Unidades</h1>
+      <div className="cartao form">
+        <input placeholder="Nome da unidade" value={form.nome} onChange={campo('nome')} />
+        <input placeholder="Endereço" value={form.endereco} onChange={campo('endereco')} />
+        <input placeholder="Telefone / WhatsApp" value={form.telefone} onChange={campo('telefone')} />
+        <label>Cor na agenda <input type="color" value={form.cor} onChange={campo('cor')} /></label>
+        <button onClick={salvar}>Salvar unidade</button>
+      </div>
+      {lista.length === 0 && <p className="vazio">Nenhuma unidade cadastrada. Cadastre a primeira acima.</p>}
+      {lista.map(u => (
+        <div key={u.id} className="cartao linha" style={{ borderLeft: `6px solid ${u.cor}` }}>
+          <div><strong>{u.nome}</strong><br /><small>{u.endereco} {u.telefone}</small></div>
+          <button className="leve" onClick={() => alternar(u)}>{u.ativa ? 'Desativar' : 'Reativar'}</button>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function App() {
+  const [sessao, setSessao] = useState(null)
+  const [carregando, setCarregando] = useState(true)
+  const [usuario, setUsuario] = useState(null)
+  const [pagina, setPagina] = useState('painel')
+
+  useEffect(() => {
+    db.auth.getSession().then(({ data }) => { setSessao(data.session); setCarregando(false) })
+    const { data } = db.auth.onAuthStateChange((_e, s) => setSessao(s))
+    return () => data.subscription.unsubscribe()
+  }, [])
+
+  useEffect(() => {
+    if (!sessao) return setUsuario(null)
+    db.from('usuarios').select('*').eq('id', sessao.user.id).single().then(({ data }) => setUsuario(data))
+  }, [sessao])
+
+  if (carregando) return <p className="vazio" style={{ padding: 24 }}>Carregando...</p>
+  if (!sessao) return <Login />
+  if (!usuario) return <p className="vazio" style={{ padding: 24 }}>Sua conta ainda não tem perfil. Peça à administração para liberar o acesso.</p>
+
+  const admin = usuario.perfil === 'admin'
+  const itens = MENU.filter(([, , soAdmin]) => admin || !soAdmin)
+  return (
+    <div className="app">
+      <nav className="menu">
+        <h2>Clínica</h2>
+        {itens.map(([k, rotulo]) => (
+          <button key={k} className={pagina === k ? 'ativo' : ''} onClick={() => setPagina(k)}>{rotulo}</button>
+        ))}
+        <button className="sair" onClick={() => db.auth.signOut()}>Sair</button>
+      </nav>
+      <main>
+        {pagina === 'admin' ? <Unidades /> : (
+          <>
+            <h1>{itens.find(([k]) => k === pagina)?.[1]}</h1>
+            <p className="vazio">Esta tela será o próximo módulo a construir.</p>
+          </>
+        )}
+      </main>
+    </div>
+  )
+}
+
+function Raiz() {
+  if (!configurado) return (
+    <div className="login">
+      <h1>Falta conectar o Supabase</h1>
+      <p>Abra o <code>index.html</code>, procure o bloco CONFIGURAÇÃO no início do script e cole a URL e a chave anon do seu projeto.</p>
+    </div>
+  )
+  return <App />
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Raiz />)
+</script>
+</body>
+</html>
