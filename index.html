@@ -342,6 +342,10 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   const [fProf, setFProf] = useState('')
   const [novo, setNovo] = useState(null)
   const [aviso, setAviso] = useState('')
+  const [pagto, setPagto] = useState(null)
+  const [pagos, setPagos] = useState(new Set())
+  const [formas, setFormas] = useState([])
+  useEffect(() => { db.from('formas_pagamento').select('*').eq('ativa', true).order('nome').then(({ data }) => setFormas(data || [])) }, [])
   useEffect(() => {
     if (!prefill) return
     setNovo({ cliente_id: prefill.cliente_id, servico_id: prefill.servico_id, unidade_id: '', profissional_id: usuario.id, data: isoData(new Date()), hora: '09:00' })
@@ -363,6 +367,11 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
       .select('*, clientes(nome), servicos(nome), usuarios(nome), unidades(nome,cor)')
       .gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio')
     setItens(data || [])
+    const ids = (data || []).map(i => i.id)
+    if (ids.length) {
+      const r = await db.from('contas_receber').select('agendamento_id').in('agendamento_id', ids)
+      setPagos(new Set((r.data || []).map(x => x.agendamento_id)))
+    }
   }
   useEffect(() => { carregar() }, [semana])
 
@@ -381,15 +390,39 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
     if (error) return setErro(error.code === '23P01' ? 'Esse horário já está ocupado para esta profissional.' : 'Não foi possível salvar. Tente de novo.')
     setNovo(null); setErro(''); setAviso(''); carregar()
   }
+  const abrirProximo = a => {
+    const s = ref.servicos.find(x => x.id === a.servico_id)
+    setNovo({ cliente_id: a.cliente_id, servico_id: a.servico_id, unidade_id: a.unidade_id, profissional_id: a.profissional_id, data: isoData(somaDias(new Date(), s?.retorno_dias || 0)), hora: fmtHora(a.inicio) })
+    setAviso(`Agende o próximo atendimento de ${a.clientes?.nome}.`)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
   const mudarStatus = async (a, status) => {
     await db.from('agendamentos').update({ status }).eq('id', a.id)
     carregar()
-    if (status === 'concluido') {
-      const s = ref.servicos.find(x => x.id === a.servico_id)
-      setNovo({ cliente_id: a.cliente_id, servico_id: a.servico_id, unidade_id: a.unidade_id, profissional_id: a.profissional_id, data: isoData(somaDias(new Date(), s?.retorno_dias || 0)), hora: fmtHora(a.inicio) })
-      setAviso(`Atendimento concluído. Agende o próximo de ${a.clientes?.nome}.`)
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    }
+    if (status !== 'concluido') return
+    if (usuario.perfil !== 'admin' || pagos.has(a.id)) return abrirProximo(a)
+    setNovo(null); setErro('')
+    setPagto({ a, valor: ref.servicos.find(x => x.id === a.servico_id)?.preco || '', forma_id: '', parcelas: 1, data: isoData(new Date()), recebido: true })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+  const salvarPagto = async () => {
+    const total = Number(pagto.valor), a = pagto.a
+    if (!(total > 0)) return setErro('Informe o valor do atendimento.')
+    const falhou = () => setErro('Não foi possível salvar. Tente de novo.')
+    const n = Math.max(1, Number(pagto.parcelas) || 1)
+    const { data: conta, error } = await db.from('contas_receber').insert({
+      unidade_id: a.unidade_id, cliente_id: a.cliente_id, agendamento_id: a.id,
+      forma_pagamento_id: pagto.forma_id || null, descricao: a.servicos?.nome || 'Atendimento', valor_total: total,
+    }).select().single()
+    if (error) return falhou()
+    const base = Math.floor(total / n * 100) / 100
+    const linhas = Array.from({ length: n }, (_, k) => ({
+      conta_id: conta.id, numero: k + 1, vencimento: somaMeses(pagto.data, k),
+      valor: k < n - 1 ? base : Number((total - base * (n - 1)).toFixed(2)),
+      ...(pagto.recebido && k === 0 ? { status: 'paga', pago_em: isoData(new Date()) } : {}),
+    }))
+    if ((await db.from('parcelas_receber').insert(linhas)).error) return falhou()
+    setPagto(null); setErro(''); carregar(); abrirProximo(a)
   }
 
   const dias = [0, 1, 2, 3, 4, 5, 6].map(n => somaDias(semana, n))
@@ -408,6 +441,20 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
         {usuario.perfil === 'admin' && <Sel valor={fProf} onChange={setFProf} vazio="Todas as profissionais" opcoes={ref.profs.map(p => [p.id, p.nome])} />}
         <button onClick={abrirNovo}>Novo atendimento</button>
       </div>
+
+      {pagto && (
+        <div className="cartao form">
+          <p style={{ width: '100%', margin: 0 }}><strong>Atendimento concluído. Registre o pagamento de {pagto.a.clientes?.nome}.</strong></p>
+          <input type="number" step="0.01" placeholder="Valor (R$)" value={pagto.valor} onChange={e => setPagto({ ...pagto, valor: e.target.value })} />
+          <Sel valor={pagto.forma_id} onChange={v => setPagto({ ...pagto, forma_id: v })} vazio="Forma de pagamento" opcoes={formas.map(f => [f.id, f.nome])} />
+          <input type="number" min="1" placeholder="Parcelas" style={{ width: 100 }} value={pagto.parcelas} onChange={e => setPagto({ ...pagto, parcelas: e.target.value })} />
+          <label>1º vencimento <input type="date" value={pagto.data} onChange={e => setPagto({ ...pagto, data: e.target.value })} /></label>
+          <label><input type="checkbox" checked={pagto.recebido} onChange={e => setPagto({ ...pagto, recebido: e.target.checked })} /> Primeira parcela já recebida</label>
+          <button onClick={salvarPagto}>Salvar pagamento</button>
+          <button className="leve" onClick={() => { const a = pagto.a; setPagto(null); setErro(''); abrirProximo(a) }}>Pular por enquanto</button>
+          {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
+        </div>
+      )}
 
       {novo && (
         <div className="cartao form">
@@ -435,10 +482,10 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
                 <select value={i.status} onChange={e => mudarStatus(i, e.target.value)}>
                   {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
                 </select>
-                {i.status === 'concluido' && usuario.perfil === 'admin' && (
+                {i.status === 'concluido' && usuario.perfil === 'admin' && (pagos.has(i.id) ? <small>Pagamento registrado</small> : (
                   <button className="leve" style={{ marginTop: 6, width: '100%', padding: 4 }}
                     onClick={() => irParaReceber({ agendamento_id: i.id, cliente_id: i.cliente_id, unidade_id: i.unidade_id, descricao: i.servicos?.nome || '', valor: ref.servicos.find(x => x.id === i.servico_id)?.preco || '' })}>Registrar pagamento</button>
-                )}
+                ))}
               </div>
             ))}
           </div>
