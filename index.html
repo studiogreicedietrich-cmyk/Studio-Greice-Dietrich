@@ -4,47 +4,100 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Clínica</title>
-<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Nunito+Sans:wght@400;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=Jost:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
-:root { --nude:#F7EBE5; --areia:#E9D3C9; --rosa:#C4677F; --rosa-esc:#A94F68; --vinho:#4A2530; --branco:#FFFDFC; }
-* { box-sizing: border-box }
-body { margin:0; background:var(--nude); color:var(--vinho); font:16px/1.5 'Nunito Sans', system-ui, sans-serif }
-h1, h2 { font-family:'Cormorant Garamond', Georgia, serif; font-weight:600; margin:0 0 16px }
-h1 { font-size:2rem } h2 { font-size:1.6rem }
-.app { display:grid; grid-template-columns:240px 1fr; min-height:100vh }
-.menu { background:var(--branco); border-right:1px solid var(--areia); padding:24px 16px; display:flex; flex-direction:column; gap:4px }
-.menu button { text-align:left; background:none; color:var(--vinho); border:0; padding:10px 12px; border-radius:8px; cursor:pointer; font:inherit }
-.menu button:hover { background:var(--nude) }
-.menu button.ativo { background:var(--rosa); color:#fff }
-.menu .sair { margin-top:auto; color:var(--rosa-esc) }
-main { padding:32px; max-width:980px }
-input { font:inherit; padding:10px 12px; border:1px solid var(--areia); border-radius:8px; background:#fff; color:var(--vinho) }
-button { font:inherit; background:var(--rosa); color:#fff; border:0; padding:10px 16px; border-radius:8px; cursor:pointer }
-button:hover { background:var(--rosa-esc) }
-button.leve { background:var(--areia); color:var(--vinho) }
+:root { --nude:#FBF3F0; --areia:#F1DDD6; --blush:#F8DCE3; --rosa:#D4708A; --rosa-esc:#B5516D; --vinho:#4A2A36; --suave:#93707C; --sombra:0 6px 24px rgba(181,81,109,.10) }
+* { box-sizing:border-box }
+body { margin:0; color:var(--vinho); font:400 15.5px/1.55 'Jost', system-ui, sans-serif;
+  background:radial-gradient(1100px 520px at 88% -12%, #FCE1E7 0, transparent 62%), var(--nude) }
+h1, h2, h3 { font-family:'Cormorant Garamond', Georgia, serif; font-weight:600; letter-spacing:.2px; margin:0 0 14px }
+h1 { font-size:2.4rem; line-height:1.1 } h2 { font-size:1.6rem }
+.app { padding-left:76px; min-height:100vh }
+
+/* menu lateral: só ícones, abre ao passar o mouse */
+.menu { position:fixed; inset:0 auto 0 0; width:76px; z-index:20; padding:18px 12px; display:flex; flex-direction:column; gap:6px; overflow:hidden;
+  background:linear-gradient(180deg, #E6A6B8, #C0587A); transition:width .28s ease, box-shadow .28s }
+.menu:hover, .menu:focus-within { width:250px; box-shadow:10px 0 40px rgba(181,81,109,.28) }
+.menu button { display:flex; align-items:center; gap:16px; width:100%; background:none; color:#fff; border:0; box-shadow:none;
+  padding:12px 14px; border-radius:16px; cursor:pointer; font:500 15px 'Jost', sans-serif; white-space:nowrap; transform:none; transition:background .2s }
+.menu button:hover { background:rgba(255,255,255,.2); box-shadow:none; transform:none }
+.menu button.ativo, .menu button.ativo:hover { background:#fff; color:var(--rosa-esc); box-shadow:0 4px 14px rgba(0,0,0,.08) }
+.menu svg { flex:none }
+.menu span { opacity:0; transition:opacity .2s }
+.menu:hover span, .menu:focus-within span { opacity:1 }
+.marca { display:flex; align-items:center; gap:16px; color:#fff; padding:6px 14px 20px; font:600 1.6rem 'Cormorant Garamond', serif; white-space:nowrap }
+.menu .sair { margin-top:auto }
+
+main { padding:26px 38px 52px; max-width:1300px; animation:entra .3s ease }
+@keyframes entra { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
+.topo { display:flex; justify-content:space-between; align-items:center; margin-bottom:22px; color:var(--suave) }
+.topo strong { font:600 1.4rem 'Cormorant Garamond', serif; color:var(--vinho) }
+.topo small { text-transform:capitalize }
+.avatar { width:46px; height:46px; border-radius:50%; display:grid; place-items:center; color:#fff; font-weight:600; background:linear-gradient(135deg, #F3B7C4, #D4708A) }
+
+input, select, textarea { font:inherit; padding:11px 14px; border:1.5px solid var(--areia); border-radius:12px; background:#fff; color:var(--vinho); transition:border-color .2s, box-shadow .2s }
+input:focus, select:focus, textarea:focus { outline:0; border-color:var(--rosa); box-shadow:0 0 0 4px rgba(212,112,138,.16) }
+textarea { width:100% }
+button { font:500 15px 'Jost', sans-serif; color:#fff; border:0; padding:11px 22px; border-radius:999px; cursor:pointer;
+  background:linear-gradient(135deg, #E08AA0, #C45F7E); box-shadow:0 4px 14px rgba(196,95,126,.28); transition:transform .15s, box-shadow .2s, background .2s }
+button:hover { transform:translateY(-1px); box-shadow:0 8px 20px rgba(196,95,126,.32) }
+button:active { transform:none }
+button.leve { background:var(--blush); color:var(--rosa-esc); box-shadow:none }
+button.leve:hover { background:#F3C5D0; box-shadow:none }
 :focus-visible { outline:3px solid var(--rosa-esc); outline-offset:2px }
-.cartao { background:var(--branco); border:1px solid var(--areia); border-radius:12px; padding:16px; margin-bottom:12px }
-.form { display:flex; flex-wrap:wrap; gap:10px; align-items:center }
-.linha { display:flex; justify-content:space-between; align-items:center }
-.vazio { color:#8a6a72 } .erro { color:#b3261e; margin:0 }
-.login { max-width:340px; margin:12vh auto; display:flex; flex-direction:column; gap:12px; padding:0 16px }
-main { max-width:1240px }
-select { font:inherit; padding:10px 12px; border:1px solid var(--areia); border-radius:8px; background:#fff; color:var(--vinho) }
-.semana { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px }
-.dia { background:var(--branco); border:1px solid var(--areia); border-radius:12px; padding:10px; min-height:120px }
-.dia h3 { margin:0 0 8px; font:600 1.1rem 'Cormorant Garamond', Georgia, serif; text-transform:capitalize }
-.atend { background:var(--nude); border-radius:8px; padding:8px; margin-bottom:8px; font-size:.92rem }
-.atend select { width:100%; margin-top:6px; padding:4px 6px; font-size:.85rem }
-.atend.apagado { opacity:.5; text-decoration:line-through }
-textarea { font:inherit; padding:10px 12px; border:1px solid var(--areia); border-radius:8px; background:#fff; color:var(--vinho); width:100% }
-.clicavel { cursor:pointer } .clicavel:hover { border-color:var(--rosa) }
-.cartao.apagado { opacity:.55 }
-.retorno { padding:10px 0; border-top:1px solid var(--areia); gap:12px; flex-wrap:wrap }
-a.botao { background:var(--areia); color:var(--vinho); text-decoration:none; padding:10px 16px; border-radius:8px }
 label { display:inline-flex; gap:6px; align-items:center }
-.resumo { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px }
-.numero { font:600 1.7rem 'Cormorant Garamond', Georgia, serif }
-@media (max-width:760px) { .app { grid-template-columns:1fr } .menu { flex-direction:row; flex-wrap:wrap; border-right:0; border-bottom:1px solid var(--areia) } .menu h2 { width:100% } main { padding:20px } }
+
+.cartao { background:#fff; border:1px solid #F3E4DF; border-radius:20px; padding:18px 20px; margin-bottom:14px; box-shadow:var(--sombra) }
+.cartao.apagado { opacity:.55 }
+.form { display:flex; flex-wrap:wrap; gap:10px; align-items:center }
+.linha { display:flex; justify-content:space-between; align-items:center; gap:12px }
+.vazio { color:var(--suave) } .erro { color:#b3261e; margin:0 }
+.clicavel { cursor:pointer; transition:transform .2s, box-shadow .2s }
+.clicavel:hover { transform:translateY(-3px); box-shadow:0 12px 30px rgba(181,81,109,.18) }
+.login { max-width:380px; margin:12vh auto; background:#fff; padding:36px 30px; border-radius:28px; box-shadow:var(--sombra); display:flex; flex-direction:column; gap:14px; text-align:center }
+.login svg { align-self:center; color:var(--rosa) }
+.resumo { display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr)); gap:14px }
+.resumo .cartao { margin:0; transition:transform .2s } .resumo .cartao:hover { transform:translateY(-3px) }
+.numero { font:600 2rem 'Cormorant Garamond', serif; color:var(--rosa-esc) }
+.retorno { padding:12px 0; border-top:1px solid var(--areia); gap:12px; flex-wrap:wrap }
+a.botao { background:var(--blush); color:var(--rosa-esc); text-decoration:none; padding:11px 20px; border-radius:999px; font-weight:500; transition:background .2s }
+a.botao:hover { background:#F3C5D0 }
+
+/* agenda: semana */
+.semana { display:grid; grid-template-columns:repeat(auto-fit, minmax(165px, 1fr)); gap:12px }
+.semana[hidden] { display:none }
+.dia { background:#fff; border:1px solid #F3E4DF; border-radius:18px; padding:12px; min-height:130px; box-shadow:var(--sombra) }
+.dia h3 { font-size:1.2rem; text-transform:capitalize; margin:0 0 10px }
+.atend { background:var(--nude); border-radius:12px; padding:10px; margin-bottom:8px; font-size:.92rem; transition:transform .15s }
+.atend:hover { transform:translateX(3px) }
+.atend select { width:100%; margin-top:6px; padding:5px 8px; font-size:.85rem; border-radius:10px }
+.atend.apagado { opacity:.5; text-decoration:line-through }
+
+/* agenda: dia, uma coluna por profissional */
+.chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px }
+.chips button { padding:8px 16px; text-transform:capitalize }
+.grade { display:grid; gap:0 8px; background:#fff; border-radius:20px; padding:14px; box-shadow:var(--sombra); overflow-x:auto }
+.gcab { text-align:center; font:600 1.2rem 'Cormorant Garamond', serif; padding-bottom:10px }
+.ghoras { position:relative; font-size:.78rem; color:var(--suave) }
+.ghoras span { position:absolute; right:6px; transform:translateY(-50%) }
+.gcol { position:relative; border-left:1px dashed var(--areia);
+  background-image:repeating-linear-gradient(to bottom, transparent 0, transparent calc(var(--px) - 1px), #F6EAE6 calc(var(--px) - 1px), #F6EAE6 var(--px)) }
+.gatend { position:absolute; left:4px; right:4px; border-radius:12px; border-left:4px solid; padding:5px 9px; font-size:.82rem; overflow:hidden; transition:box-shadow .2s }
+.gatend:hover { z-index:5; height:auto !important; overflow:visible; background:#fff !important; box-shadow:0 10px 28px rgba(181,81,109,.28) }
+.gatend select { display:none; width:100%; margin-top:4px; padding:3px 6px; font-size:.8rem; border-radius:8px }
+.gatend:hover select { display:block }
+.gatend.apagado { opacity:.5 }
+
+@media (max-width:760px) {
+  .app { padding-left:0; padding-bottom:88px }
+  .menu { inset:auto 0 0 0; width:100%; height:72px; flex-direction:row; justify-content:space-around; padding:8px; border-radius:24px 24px 0 0 }
+  .menu:hover, .menu:focus-within { width:100% }
+  .menu span, .marca { display:none }
+  .menu button { justify-content:center; padding:10px; width:auto }
+  .menu .sair { margin:0 }
+  main { padding:20px 16px } h1 { font-size:2rem }
+}
+@media (prefers-reduced-motion: reduce) { * { animation:none !important; transition:none !important } }
 </style>
 </head>
 <body>
@@ -73,6 +126,22 @@ const MENU = [
   ['admin', 'Administrativo', true],
 ]
 
+const ICONES = {
+  brilho: <path d="M12 3c1.5 4 3.5 6 8 7-4.5 1-6.5 3-8 7-1.5-4-3.5-6-8-7 4.5-1 6.5-3 8-7z" />,
+  painel: <><rect x="3" y="3" width="7" height="9" rx="2" /><rect x="14" y="3" width="7" height="5" rx="2" /><rect x="14" y="12" width="7" height="9" rx="2" /><rect x="3" y="16" width="7" height="5" rx="2" /></>,
+  agenda: <><rect x="3" y="4" width="18" height="18" rx="4" /><path d="M16 2v4M8 2v4M3 10h18" /></>,
+  clientes: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>,
+  financeiro: <><rect x="2" y="6" width="20" height="14" rx="4" /><path d="M2 10h20M16 15h2" /></>,
+  compras: <><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z" /><path d="M3 6h18M16 10a4 4 0 0 1-8 0" /></>,
+  pacotes: <><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5" /></>,
+  relatorios: <path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7" />,
+  admin: <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />,
+  sair: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
+}
+function Icone({ nome, tam = 24 }) {
+  return <svg width={tam} height={tam} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ICONES[nome]}</svg>
+}
+
 function Login() {
   const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
@@ -83,6 +152,7 @@ function Login() {
   }
   return (
     <div className="login">
+      <Icone nome="brilho" tam={42} />
       <h1>Entrar na clínica</h1>
       <input placeholder="E-mail" value={email} onChange={e => setEmail(e.target.value)} />
       <input placeholder="Senha" type="password" value={senha} onChange={e => setSenha(e.target.value)} />
@@ -334,6 +404,44 @@ function Painel({ irParaAgenda }) {
   )
 }
 
+const H0 = 7, H1 = 20, PX = 56
+function Grade({ dias, sel, setSel, itens, colunas, onStatus }) {
+  const dia = dias[sel]
+  const doDia = itens.filter(i => new Date(i.inicio).toDateString() === dia.toDateString())
+  const horas = Array.from({ length: H1 - H0 + 1 }, (_, k) => H0 + k)
+  const alt = (H1 - H0) * PX
+  return (
+    <>
+      <div className="chips">
+        {dias.map((d, k) => <button key={k} className={k === sel ? '' : 'leve'} onClick={() => setSel(k)}>{d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })}</button>)}
+      </div>
+      <div className="grade" style={{ '--px': PX + 'px', gridTemplateColumns: `56px repeat(${Math.max(colunas.length, 1)}, minmax(170px, 1fr))` }}>
+        <div />
+        {colunas.map(p => <div key={p.id} className="gcab">{p.nome}</div>)}
+        <div className="ghoras" style={{ height: alt }}>{horas.map(h => <span key={h} style={{ top: (h - H0) * PX }}>{h}:00</span>)}</div>
+        {colunas.map(p => (
+          <div key={p.id} className="gcol" style={{ height: alt }}>
+            {doDia.filter(i => i.profissional_id === p.id).map(i => {
+              const ini = new Date(i.inicio), min = ini.getHours() * 60 + ini.getMinutes() - H0 * 60
+              const dur = (new Date(i.fim) - ini) / 60000, cor = i.unidades?.cor || '#D4708A'
+              return (
+                <div key={i.id} className={'gatend' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')}
+                  style={{ top: min / 60 * PX, height: Math.max(dur / 60 * PX, 30), borderLeftColor: cor, background: cor + '26' }}>
+                  <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
+                  <small>{i.servicos?.nome} · {ROTULO[i.status]}</small>
+                  <select value={i.status} onChange={e => onStatus(i, e.target.value)}>
+                    {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
+                  </select>
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
 function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   const [semana, setSemana] = useState(inicioSemana(new Date()))
   const [itens, setItens] = useState([])
@@ -343,6 +451,8 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   const [novo, setNovo] = useState(null)
   const [aviso, setAviso] = useState('')
   const [pagto, setPagto] = useState(null)
+  const [modo, setModo] = useState('semana')
+  const [diaSel, setDiaSel] = useState((new Date().getDay() + 6) % 7)
   const [pagos, setPagos] = useState(new Set())
   const [formas, setFormas] = useState([])
   useEffect(() => { db.from('formas_pagamento').select('*').eq('ativa', true).order('nome').then(({ data }) => setFormas(data || [])) }, [])
@@ -439,6 +549,8 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
         <button className="leve" onClick={() => setSemana(somaDias(semana, 7))}>Próxima semana</button>
         <Sel valor={fUnidade} onChange={setFUnidade} vazio="Todas as unidades" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
         {usuario.perfil === 'admin' && <Sel valor={fProf} onChange={setFProf} vazio="Todas as profissionais" opcoes={ref.profs.map(p => [p.id, p.nome])} />}
+        <button className={modo === 'semana' ? '' : 'leve'} onClick={() => setModo('semana')}>Semana</button>
+        <button className={modo === 'dia' ? '' : 'leve'} onClick={() => setModo('dia')}>Dia</button>
         <button onClick={abrirNovo}>Novo atendimento</button>
       </div>
 
@@ -471,7 +583,8 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
         </div>
       )}
 
-      <div className="semana">
+      {modo === 'dia' && <Grade dias={dias} sel={diaSel} setSel={setDiaSel} itens={visiveis} colunas={fProf ? ref.profs.filter(p => p.id === fProf) : ref.profs} onStatus={mudarStatus} />}
+      <div className="semana" hidden={modo === 'dia'}>
         {dias.map(d => (
           <div key={d.toISOString()} className="dia">
             <h3>{d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })}</h3>
@@ -753,14 +866,18 @@ function App() {
   const itens = MENU.filter(([, , soAdmin]) => admin || !soAdmin)
   return (
     <div className="app">
-      <nav className="menu">
-        <h2>Clínica</h2>
+      <nav className="menu" aria-label="Menu principal">
+        <div className="marca"><Icone nome="brilho" /><span>Clínica</span></div>
         {itens.map(([k, rotulo]) => (
-          <button key={k} className={pagina === k ? 'ativo' : ''} onClick={() => setPagina(k)}>{rotulo}</button>
+          <button key={k} className={pagina === k ? 'ativo' : ''} onClick={() => setPagina(k)} title={rotulo}><Icone nome={k} /><span>{rotulo}</span></button>
         ))}
-        <button className="sair" onClick={() => db.auth.signOut()}>Sair</button>
+        <button className="sair" onClick={() => db.auth.signOut()} title="Sair"><Icone nome="sair" /><span>Sair</span></button>
       </nav>
-      <main>
+      <main key={pagina}>
+        <header className="topo">
+          <div><strong>Olá, {usuario.nome.split(' ')[0]}</strong><br /><small>{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })}</small></div>
+          <div className="avatar">{usuario.nome[0]}</div>
+        </header>
         {pagina === 'painel' ? <Painel irParaAgenda={p => { setPrefill(p); setPagina('agenda') }} /> :
          pagina === 'agenda' ? <Agenda usuario={usuario} prefill={prefill} limparPrefill={() => setPrefill(null)} irParaReceber={p => { setPrefillRec(p); setPagina('financeiro') }} /> :
          pagina === 'financeiro' ? <Financeiro prefill={prefillRec} limparPrefill={() => setPrefillRec(null)} /> :
