@@ -36,6 +36,11 @@ select { font:inherit; padding:10px 12px; border:1px solid var(--areia); border-
 .atend { background:var(--nude); border-radius:8px; padding:8px; margin-bottom:8px; font-size:.92rem }
 .atend select { width:100%; margin-top:6px; padding:4px 6px; font-size:.85rem }
 .atend.apagado { opacity:.5; text-decoration:line-through }
+textarea { font:inherit; padding:10px 12px; border:1px solid var(--areia); border-radius:8px; background:#fff; color:var(--vinho); width:100% }
+.clicavel { cursor:pointer } .clicavel:hover { border-color:var(--rosa) }
+.cartao.apagado { opacity:.55 }
+.retorno { padding:10px 0; border-top:1px solid var(--areia); gap:12px; flex-wrap:wrap }
+a.botao { background:var(--areia); color:var(--vinho); text-decoration:none; padding:10px 16px; border-radius:8px }
 @media (max-width:760px) { .app { grid-template-columns:1fr } .menu { flex-direction:row; flex-wrap:wrap; border-right:0; border-bottom:1px solid var(--areia) } .menu h2 { width:100% } main { padding:20px } }
 </style>
 </head>
@@ -143,13 +148,13 @@ function Sel({ valor, onChange, opcoes, vazio }) {
 
 function Servicos() {
   const [lista, setLista] = useState([])
-  const [f, setF] = useState({ nome: '', preco: '', duracao_min: 60 })
+  const [f, setF] = useState({ nome: '', preco: '', duracao_min: 60, retorno_dias: '' })
   const carregar = async () => { const { data } = await db.from('servicos').select('*').order('nome'); setLista(data || []) }
   useEffect(() => { carregar() }, [])
   const salvar = async () => {
     if (!f.nome.trim()) return
-    await db.from('servicos').insert({ nome: f.nome, preco: Number(f.preco) || 0, duracao_min: Number(f.duracao_min) || 60 })
-    setF({ nome: '', preco: '', duracao_min: 60 }); carregar()
+    await db.from('servicos').insert({ nome: f.nome, preco: Number(f.preco) || 0, duracao_min: Number(f.duracao_min) || 60, retorno_dias: Number(f.retorno_dias) || null })
+    setF({ nome: '', preco: '', duracao_min: 60, retorno_dias: '' }); carregar()
   }
   const alternar = async s => { await db.from('servicos').update({ ativo: !s.ativo }).eq('id', s.id); carregar() }
   return (
@@ -159,13 +164,60 @@ function Servicos() {
         <input placeholder="Nome (ex.: Design de sobrancelha)" value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} />
         <input type="number" placeholder="Preço (R$)" value={f.preco} onChange={e => setF({ ...f, preco: e.target.value })} />
         <input type="number" placeholder="Duração (min)" value={f.duracao_min} onChange={e => setF({ ...f, duracao_min: e.target.value })} />
+        <input type="number" placeholder="Chamar de novo após (dias)" value={f.retorno_dias} onChange={e => setF({ ...f, retorno_dias: e.target.value })} />
         <button onClick={salvar}>Salvar serviço</button>
       </div>
       {lista.length === 0 && <p className="vazio">Nenhum serviço cadastrado. Cadastre o primeiro acima.</p>}
       {lista.map(s => (
         <div key={s.id} className="cartao linha">
-          <div><strong>{s.nome}</strong><br /><small>{brl(s.preco)} · {s.duracao_min} min</small></div>
+          <div><strong>{s.nome}</strong><br /><small>{brl(s.preco)} · {s.duracao_min} min</small><br />
+            <small>Chamar de novo após <input type="number" style={{ width: 70, padding: 4 }} defaultValue={s.retorno_dias || ''} placeholder="dias"
+              onBlur={e => db.from('servicos').update({ retorno_dias: Number(e.target.value) || null }).eq('id', s.id)} /> dias</small></div>
           <button className="leve" onClick={() => alternar(s)}>{s.ativo ? 'Desativar' : 'Reativar'}</button>
+        </div>
+      ))}
+    </>
+  )
+}
+
+const vazioCliente = { nome: '', telefone: '', email: '', nascimento: '', cpf: '', endereco: '', como_conheceu: '', alergias: '', observacoes: '' }
+const dataBr = d => new Date(d).toLocaleDateString('pt-BR')
+
+function Historico({ cliente, admin, onVoltar, onEditar }) {
+  const [itens, setItens] = useState([])
+  useEffect(() => {
+    db.from('agendamentos').select('*, servicos(nome), usuarios(nome), unidades(nome,cor)')
+      .eq('cliente_id', cliente.id).order('inicio', { ascending: false }).then(({ data }) => setItens(data || []))
+  }, [cliente.id])
+  const concluidos = itens.filter(i => i.status === 'concluido')
+  const proximo = [...itens].reverse().find(i => ['agendado', 'confirmado'].includes(i.status) && new Date(i.inicio) > new Date())
+  return (
+    <>
+      <button className="leve" onClick={onVoltar}>Voltar para a lista</button>
+      <h1 style={{ marginTop: 16 }}>{cliente.nome}</h1>
+      <div className="cartao">
+        <p style={{ margin: 0 }}>{[cliente.telefone, cliente.email].filter(Boolean).join(' · ')}</p>
+        {cliente.nascimento && <p style={{ margin: 0 }}>Nascimento: {dataBr(cliente.nascimento + 'T12:00')}</p>}
+        {cliente.cpf && <p style={{ margin: 0 }}>CPF: {cliente.cpf}</p>}
+        {cliente.endereco && <p style={{ margin: 0 }}>Endereço: {cliente.endereco}</p>}
+        {cliente.como_conheceu && <p style={{ margin: 0 }}>Como conheceu: {cliente.como_conheceu}</p>}
+        {cliente.alergias && <p style={{ margin: '8px 0 0' }}><strong>Alergias e restrições:</strong> {cliente.alergias}</p>}
+        {cliente.observacoes && <p style={{ margin: '8px 0 0' }}>{cliente.observacoes}</p>}
+        {admin && <button className="leve" style={{ marginTop: 12 }} onClick={() => onEditar(cliente)}>Editar cadastro</button>}
+      </div>
+      <h2>Histórico</h2>
+      <p className="vazio">
+        {concluidos.length} atendimento(s) concluído(s)
+        {concluidos[0] && ` · último em ${dataBr(concluidos[0].inicio)}`}
+        {proximo && ` · próximo em ${dataBr(proximo.inicio)} às ${fmtHora(proximo.inicio)}`}
+      </p>
+      {itens.length === 0 && <p className="vazio">Nenhum atendimento registrado para esta cliente.</p>}
+      {itens.map(i => (
+        <div key={i.id} className={'cartao' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')} style={{ borderLeft: `6px solid ${i.unidades?.cor || '#C4677F'}` }}>
+          <strong>{dataBr(i.inicio)} às {fmtHora(i.inicio)}</strong> · {i.servicos?.nome}<br />
+          <small>{i.usuarios?.nome} · {i.unidades?.nome} · {ROTULO[i.status]}</small>
+          <textarea rows="2" placeholder="Anotações do atendimento" defaultValue={i.observacoes || ''}
+            onBlur={e => db.from('agendamentos').update({ observacoes: e.target.value }).eq('id', i.id)} />
         </div>
       ))}
     </>
@@ -175,43 +227,117 @@ function Servicos() {
 function Clientes({ admin }) {
   const [lista, setLista] = useState([])
   const [busca, setBusca] = useState('')
-  const [f, setF] = useState({ nome: '', telefone: '', email: '' })
+  const [f, setF] = useState(null)
+  const [sel, setSel] = useState(null)
   const carregar = async () => { const { data } = await db.from('clientes').select('*').order('nome'); setLista(data || []) }
   useEffect(() => { carregar() }, [])
   const salvar = async () => {
     if (!f.nome.trim()) return
-    await db.from('clientes').insert(f)
-    setF({ nome: '', telefone: '', email: '' }); carregar()
+    const { id, criado_em, ...dados } = f
+    dados.nascimento = dados.nascimento || null
+    if (id) await db.from('clientes').update(dados).eq('id', id)
+    else await db.from('clientes').insert(dados)
+    if (id && sel) setSel({ ...sel, ...dados })
+    setF(null); carregar()
   }
   const campo = k => e => setF({ ...f, [k]: e.target.value })
+
+  if (f) return (
+    <>
+      <h1>{f.id ? 'Editar cliente' : 'Novo cliente'}</h1>
+      <div className="cartao form">
+        <input placeholder="Nome completo" value={f.nome || ''} onChange={campo('nome')} />
+        <input placeholder="Telefone / WhatsApp" value={f.telefone || ''} onChange={campo('telefone')} />
+        <input placeholder="E-mail" value={f.email || ''} onChange={campo('email')} />
+        <label>Nascimento <input type="date" value={f.nascimento || ''} onChange={campo('nascimento')} /></label>
+        <input placeholder="CPF" value={f.cpf || ''} onChange={campo('cpf')} />
+        <input placeholder="Endereço" value={f.endereco || ''} onChange={campo('endereco')} />
+        <input placeholder="Como conheceu a clínica" value={f.como_conheceu || ''} onChange={campo('como_conheceu')} />
+        <textarea rows="2" placeholder="Alergias e restrições" value={f.alergias || ''} onChange={campo('alergias')} />
+        <textarea rows="3" placeholder="Observações gerais" value={f.observacoes || ''} onChange={campo('observacoes')} />
+        <button onClick={salvar}>Salvar cliente</button>
+        <button className="leve" onClick={() => setF(null)}>Cancelar</button>
+      </div>
+    </>
+  )
+  if (sel) return <Historico cliente={sel} admin={admin} onVoltar={() => setSel(null)} onEditar={c => setF({ ...vazioCliente, ...c })} />
+
   const vistos = lista.filter(c => c.nome.toLowerCase().includes(busca.toLowerCase()))
   return (
     <>
       <h1>Clientes</h1>
-      {admin && (
-        <div className="cartao form">
-          <input placeholder="Nome" value={f.nome} onChange={campo('nome')} />
-          <input placeholder="Telefone / WhatsApp" value={f.telefone} onChange={campo('telefone')} />
-          <input placeholder="E-mail" value={f.email} onChange={campo('email')} />
-          <button onClick={salvar}>Salvar cliente</button>
-        </div>
-      )}
-      <input placeholder="Buscar cliente pelo nome" value={busca} onChange={e => setBusca(e.target.value)} style={{ marginBottom: 12, width: '100%' }} />
+      <div className="form" style={{ marginBottom: 12 }}>
+        <input placeholder="Buscar cliente pelo nome" value={busca} onChange={e => setBusca(e.target.value)} style={{ flex: 1 }} />
+        {admin && <button onClick={() => setF({ ...vazioCliente })}>Novo cliente</button>}
+      </div>
       {vistos.length === 0 && <p className="vazio">Nenhum cliente encontrado.</p>}
       {vistos.map(c => (
-        <div key={c.id} className="cartao"><strong>{c.nome}</strong><br /><small>{c.telefone} {c.email}</small></div>
+        <div key={c.id} className="cartao clicavel" onClick={() => setSel(c)}>
+          <strong>{c.nome}</strong><br /><small>{c.telefone} {c.email}</small>
+        </div>
       ))}
     </>
   )
 }
 
-function Agenda({ usuario }) {
+function Painel({ irParaAgenda }) {
+  const [retornos, setRetornos] = useState([])
+  const [hoje, setHoje] = useState([])
+  useEffect(() => {
+    const fimSemana = somaDias(inicioSemana(new Date()), 6)
+    db.from('v_retornos').select('*').lte('retorno_em', isoData(fimSemana)).order('retorno_em').then(({ data }) => setRetornos(data || []))
+    const h0 = new Date(); h0.setHours(0, 0, 0, 0)
+    db.from('agendamentos').select('*, clientes(nome), servicos(nome), usuarios(nome), unidades(nome,cor)')
+      .gte('inicio', h0.toISOString()).lt('inicio', somaDias(h0, 1).toISOString()).neq('status', 'cancelado').order('inicio')
+      .then(({ data }) => setHoje(data || []))
+  }, [])
+  const hojeIso = isoData(new Date())
+  const zap = t => 'https://wa.me/55' + String(t || '').replace(/\D/g, '')
+  return (
+    <>
+      <h1>Painel</h1>
+      <div className="cartao">
+        <h2>Clientes para chamar esta semana</h2>
+        {retornos.length === 0 && <p className="vazio">Ninguém para chamar nesta semana.</p>}
+        {retornos.map(r => (
+          <div key={r.cliente_id + r.servico_id} className="linha retorno">
+            <div>
+              <strong>{r.cliente}</strong> · {r.servico}<br />
+              <small>{r.retorno_em < hojeIso ? 'Atrasado desde ' : 'Retorno em '}{dataBr(r.retorno_em + 'T12:00')} (último atendimento em {dataBr(r.ultimo_atendimento + 'T12:00')})</small>
+            </div>
+            <div className="form">
+              {r.telefone && <a className="botao" href={zap(r.telefone)} target="_blank" rel="noreferrer">Chamar no WhatsApp</a>}
+              <button onClick={() => irParaAgenda({ cliente_id: r.cliente_id, servico_id: r.servico_id })}>Agendar</button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="cartao">
+        <h2>Atendimentos de hoje</h2>
+        {hoje.length === 0 && <p className="vazio">Nenhum atendimento marcado para hoje.</p>}
+        {hoje.map(i => (
+          <div key={i.id} className="retorno" style={{ borderLeft: `5px solid ${i.unidades?.cor || '#C4677F'}`, paddingLeft: 10 }}>
+            <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome} · {i.servicos?.nome}<br /><small>{i.usuarios?.nome} · {ROTULO[i.status]}</small>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+}
+
+function Agenda({ usuario, prefill, limparPrefill }) {
   const [semana, setSemana] = useState(inicioSemana(new Date()))
   const [itens, setItens] = useState([])
   const [ref, setRef] = useState({ unidades: [], clientes: [], servicos: [], profs: [] })
   const [fUnidade, setFUnidade] = useState('')
   const [fProf, setFProf] = useState('')
   const [novo, setNovo] = useState(null)
+  const [aviso, setAviso] = useState('')
+  useEffect(() => {
+    if (!prefill) return
+    setNovo({ cliente_id: prefill.cliente_id, servico_id: prefill.servico_id, unidade_id: '', profissional_id: usuario.id, data: isoData(new Date()), hora: '09:00' })
+    limparPrefill()
+  }, [prefill])
   const [erro, setErro] = useState('')
 
   useEffect(() => {
@@ -242,9 +368,18 @@ function Agenda({ usuario }) {
       profissional_id: novo.profissional_id, inicio: ini.toISOString(), fim: fim.toISOString(),
     })
     if (error) return setErro(error.code === '23P01' ? 'Esse horário já está ocupado para esta profissional.' : 'Não foi possível salvar. Tente de novo.')
-    setNovo(null); setErro(''); carregar()
+    setNovo(null); setErro(''); setAviso(''); carregar()
   }
-  const mudarStatus = async (a, status) => { await db.from('agendamentos').update({ status }).eq('id', a.id); carregar() }
+  const mudarStatus = async (a, status) => {
+    await db.from('agendamentos').update({ status }).eq('id', a.id)
+    carregar()
+    if (status === 'concluido') {
+      const s = ref.servicos.find(x => x.id === a.servico_id)
+      setNovo({ cliente_id: a.cliente_id, servico_id: a.servico_id, unidade_id: a.unidade_id, profissional_id: a.profissional_id, data: isoData(somaDias(new Date(), s?.retorno_dias || 0)), hora: fmtHora(a.inicio) })
+      setAviso(`Atendimento concluído. Agende o próximo de ${a.clientes?.nome}.`)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
 
   const dias = [0, 1, 2, 3, 4, 5, 6].map(n => somaDias(semana, n))
   const visiveis = itens.filter(i => (!fUnidade || i.unidade_id === fUnidade) && (!fProf || i.profissional_id === fProf))
@@ -265,6 +400,7 @@ function Agenda({ usuario }) {
 
       {novo && (
         <div className="cartao form">
+          {aviso && <p style={{ width: '100%', margin: 0 }}><strong>{aviso}</strong></p>}
           <Sel valor={novo.cliente_id} onChange={campo('cliente_id')} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
           <Sel valor={novo.servico_id} onChange={campo('servico_id')} vazio="Serviço" opcoes={ref.servicos.map(s => [s.id, `${s.nome} (${s.duracao_min} min)`])} />
           <Sel valor={novo.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
@@ -272,7 +408,7 @@ function Agenda({ usuario }) {
           <input type="date" value={novo.data} onChange={e => campo('data')(e.target.value)} />
           <input type="time" value={novo.hora} onChange={e => campo('hora')(e.target.value)} />
           <button onClick={salvar}>Salvar atendimento</button>
-          <button className="leve" onClick={() => { setNovo(null); setErro('') }}>Cancelar</button>
+          <button className="leve" onClick={() => { setNovo(null); setErro(''); setAviso('') }}>Cancelar</button>
           {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
         </div>
       )}
@@ -303,6 +439,7 @@ function App() {
   const [carregando, setCarregando] = useState(true)
   const [usuario, setUsuario] = useState(null)
   const [pagina, setPagina] = useState('painel')
+  const [prefill, setPrefill] = useState(null)
 
   useEffect(() => {
     db.auth.getSession().then(({ data }) => { setSessao(data.session); setCarregando(false) })
@@ -331,7 +468,8 @@ function App() {
         <button className="sair" onClick={() => db.auth.signOut()}>Sair</button>
       </nav>
       <main>
-        {pagina === 'agenda' ? <Agenda usuario={usuario} /> :
+        {pagina === 'painel' ? <Painel irParaAgenda={p => { setPrefill(p); setPagina('agenda') }} /> :
+         pagina === 'agenda' ? <Agenda usuario={usuario} prefill={prefill} limparPrefill={() => setPrefill(null)} /> :
          pagina === 'clientes' ? <Clientes admin={admin} /> :
          pagina === 'admin' ? <><Unidades /><Servicos /></> : (
           <>
