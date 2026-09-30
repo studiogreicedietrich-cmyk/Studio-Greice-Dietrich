@@ -41,6 +41,9 @@ textarea { font:inherit; padding:10px 12px; border:1px solid var(--areia); borde
 .cartao.apagado { opacity:.55 }
 .retorno { padding:10px 0; border-top:1px solid var(--areia); gap:12px; flex-wrap:wrap }
 a.botao { background:var(--areia); color:var(--vinho); text-decoration:none; padding:10px 16px; border-radius:8px }
+label { display:inline-flex; gap:6px; align-items:center }
+.resumo { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px }
+.numero { font:600 1.7rem 'Cormorant Garamond', Georgia, serif }
 @media (max-width:760px) { .app { grid-template-columns:1fr } .menu { flex-direction:row; flex-wrap:wrap; border-right:0; border-bottom:1px solid var(--areia) } .menu h2 { width:100% } main { padding:20px } }
 </style>
 </head>
@@ -104,6 +107,10 @@ function Unidades() {
     await db.from('unidades').insert(form)
     setForm(vazioUnidade); carregar()
   }
+  const salvarHorario = async (u, k, v) => {
+    await db.from('unidades').update({ horario_funcionamento: { ...u.horario_funcionamento, [k]: v } }).eq('id', u.id)
+    carregar()
+  }
   const alternar = async u => {
     await db.from('unidades').update({ ativa: !u.ativa }).eq('id', u.id)
     carregar()
@@ -111,7 +118,7 @@ function Unidades() {
   const campo = k => e => setForm({ ...form, [k]: e.target.value })
   return (
     <>
-      <h1>Unidades</h1>
+      <h1 style={{ marginTop: 32 }}>Unidades</h1>
       <div className="cartao form">
         <input placeholder="Nome da unidade" value={form.nome} onChange={campo('nome')} />
         <input placeholder="Endereço" value={form.endereco} onChange={campo('endereco')} />
@@ -122,7 +129,9 @@ function Unidades() {
       {lista.length === 0 && <p className="vazio">Nenhuma unidade cadastrada. Cadastre a primeira acima.</p>}
       {lista.map(u => (
         <div key={u.id} className="cartao linha" style={{ borderLeft: `6px solid ${u.cor}` }}>
-          <div><strong>{u.nome}</strong><br /><small>{u.endereco} {u.telefone}</small></div>
+          <div><strong>{u.nome}</strong><br /><small>{u.endereco} {u.telefone}</small><br />
+            <small>Funciona das <input type="time" style={{ padding: 4 }} defaultValue={u.horario_funcionamento?.abre || ''} onBlur={e => salvarHorario(u, 'abre', e.target.value)} /> às{' '}
+              <input type="time" style={{ padding: 4 }} defaultValue={u.horario_funcionamento?.fecha || ''} onBlur={e => salvarHorario(u, 'fecha', e.target.value)} /></small></div>
           <button className="leve" onClick={() => alternar(u)}>{u.ativa ? 'Desativar' : 'Reativar'}</button>
         </div>
       ))}
@@ -325,7 +334,7 @@ function Painel({ irParaAgenda }) {
   )
 }
 
-function Agenda({ usuario, prefill, limparPrefill }) {
+function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   const [semana, setSemana] = useState(inicioSemana(new Date()))
   const [itens, setItens] = useState([])
   const [ref, setRef] = useState({ unidades: [], clientes: [], servicos: [], profs: [] })
@@ -363,6 +372,8 @@ function Agenda({ usuario, prefill, limparPrefill }) {
     if (!novo.cliente_id || !s || !novo.unidade_id || !novo.profissional_id || !novo.data || !novo.hora) return setErro('Preencha todos os campos.')
     const ini = new Date(`${novo.data}T${novo.hora}`)
     const fim = new Date(ini.getTime() + s.duracao_min * 60000)
+    const h = ref.unidades.find(u => u.id === novo.unidade_id)?.horario_funcionamento
+    if (h?.abre && h?.fecha && (fmtHora(ini) < h.abre || fmtHora(fim) > h.fecha)) return setErro(`Fora do horário de funcionamento da unidade (${h.abre} às ${h.fecha}).`)
     const { error } = await db.from('agendamentos').insert({
       cliente_id: novo.cliente_id, servico_id: novo.servico_id, unidade_id: novo.unidade_id,
       profissional_id: novo.profissional_id, inicio: ini.toISOString(), fim: fim.toISOString(),
@@ -424,6 +435,10 @@ function Agenda({ usuario, prefill, limparPrefill }) {
                 <select value={i.status} onChange={e => mudarStatus(i, e.target.value)}>
                   {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
                 </select>
+                {i.status === 'concluido' && usuario.perfil === 'admin' && (
+                  <button className="leve" style={{ marginTop: 6, width: '100%', padding: 4 }}
+                    onClick={() => irParaReceber({ agendamento_id: i.id, cliente_id: i.cliente_id, unidade_id: i.unidade_id, descricao: i.servicos?.nome || '', valor: ref.servicos.find(x => x.id === i.servico_id)?.preco || '' })}>Registrar pagamento</button>
+                )}
               </div>
             ))}
           </div>
@@ -434,12 +449,243 @@ function Agenda({ usuario, prefill, limparPrefill }) {
   )
 }
 
+const somaMeses = (iso, n) => {
+  const [y, m, d] = iso.split('-').map(Number)
+  return isoData(new Date(y, m - 1 + n, Math.min(d, new Date(y, m + n, 0).getDate())))
+}
+
+function Equipe({ eu }) {
+  const [membros, setMembros] = useState([])
+  const [unidades, setUnidades] = useState([])
+  const [vinc, setVinc] = useState([])
+  const [f, setF] = useState({ email: '', nome: '', perfil: 'profissional', unidades: [] })
+  const [msg, setMsg] = useState('')
+  const carregar = async () => {
+    const [m, u, v] = await Promise.all([
+      db.from('usuarios').select('*').order('nome'),
+      db.from('unidades').select('id,nome,cor').eq('ativa', true).order('nome'),
+      db.from('usuario_unidades').select('*'),
+    ])
+    setMembros(m.data || []); setUnidades(u.data || []); setVinc(v.data || [])
+  }
+  useEffect(() => { carregar() }, [])
+  const adicionar = async () => {
+    if (!f.email.trim() || !f.nome.trim()) return setMsg('Informe o e-mail do login e o nome.')
+    const { error } = await db.rpc('adicionar_membro', { p_email: f.email.trim(), p_nome: f.nome.trim(), p_perfil: f.perfil, p_unidades: f.unidades })
+    if (error) return setMsg(error.message)
+    setMsg(''); setF({ email: '', nome: '', perfil: 'profissional', unidades: [] }); carregar()
+  }
+  const marcarForm = id => setF({ ...f, unidades: f.unidades.includes(id) ? f.unidades.filter(x => x !== id) : [...f.unidades, id] })
+  const alternarUnidade = async (m, uid, marcado) => {
+    if (marcado) await db.from('usuario_unidades').delete().match({ usuario_id: m.id, unidade_id: uid })
+    else await db.from('usuario_unidades').insert({ usuario_id: m.id, unidade_id: uid })
+    carregar()
+  }
+  const atualizar = async (m, campos) => { await db.from('usuarios').update(campos).eq('id', m.id); carregar() }
+  return (
+    <>
+      <h1>Equipe</h1>
+      <div className="cartao form">
+        <p style={{ width: '100%', margin: 0 }} className="vazio">Primeiro crie o login da pessoa no Supabase (Authentication &gt; Users). Depois informe aqui o mesmo e-mail.</p>
+        <input placeholder="E-mail do login" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
+        <input placeholder="Nome" value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} />
+        <Sel valor={f.perfil} onChange={v => setF({ ...f, perfil: v })} vazio="Perfil" opcoes={[['admin', 'Administração'], ['profissional', 'Profissional']]} />
+        {unidades.map(u => <label key={u.id}><input type="checkbox" checked={f.unidades.includes(u.id)} onChange={() => marcarForm(u.id)} /> {u.nome}</label>)}
+        <button onClick={adicionar}>Adicionar à equipe</button>
+        {msg && <p className="erro" style={{ width: '100%' }}>{msg}</p>}
+      </div>
+      {membros.map(m => (
+        <div key={m.id} className="cartao" style={{ opacity: m.ativo ? 1 : .55 }}>
+          <div className="linha">
+            <strong>{m.nome}{m.id === eu && ' (você)'}</strong>
+            <div className="form">
+              <Sel valor={m.perfil} onChange={v => atualizar(m, { perfil: v })} vazio="Perfil" opcoes={[['admin', 'Administração'], ['profissional', 'Profissional']]} />
+              {m.id !== eu && <button className="leve" onClick={() => atualizar(m, { ativo: !m.ativo })}>{m.ativo ? 'Desativar' : 'Reativar'}</button>}
+            </div>
+          </div>
+          <div className="form" style={{ marginTop: 8 }}>
+            {unidades.map(u => {
+              const marcado = vinc.some(v => v.usuario_id === m.id && v.unidade_id === u.id)
+              return <label key={u.id}><input type="checkbox" checked={marcado} onChange={() => alternarUnidade(m, u.id, marcado)} /> {u.nome}</label>
+            })}
+          </div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function Formas() {
+  const [lista, setLista] = useState([])
+  useEffect(() => { db.from('formas_pagamento').select('*').order('nome').then(({ data }) => setLista(data || [])) }, [])
+  const salvar = (p, campo, v) => db.from('formas_pagamento').update({ [campo]: Number(v) || 0 }).eq('id', p.id)
+  return (
+    <>
+      <h1 style={{ marginTop: 32 }}>Formas de pagamento</h1>
+      {lista.map(p => (
+        <div key={p.id} className="cartao linha">
+          <strong>{p.nome}</strong>
+          <small>Taxa <input type="number" step="0.01" style={{ width: 80, padding: 4 }} defaultValue={p.taxa_percentual} onBlur={e => salvar(p, 'taxa_percentual', e.target.value)} /> %
+            · Cai em <input type="number" style={{ width: 70, padding: 4 }} defaultValue={p.dias_para_receber} onBlur={e => salvar(p, 'dias_para_receber', e.target.value)} /> dias</small>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function Financeiro({ prefill, limparPrefill }) {
+  const hoje = new Date(), hojeIso = isoData(hoje)
+  const [aba, setAba] = useState('resumo')
+  const [mes, setMes] = useState(new Date(hoje.getFullYear(), hoje.getMonth(), 1))
+  const [fUnidade, setFUnidade] = useState('')
+  const [ref, setRef] = useState({ unidades: [], clientes: [], formas: [] })
+  const [rec, setRec] = useState([])
+  const [pag, setPag] = useState([])
+  const [form, setForm] = useState(null)
+  const [erro, setErro] = useState('')
+  const ini = isoData(mes), fim = isoData(new Date(mes.getFullYear(), mes.getMonth() + 1, 0))
+
+  const carregar = async () => {
+    const filtro = `and(status.eq.pendente,vencimento.lte.${fim}),and(pago_em.gte.${ini},pago_em.lte.${fim})`
+    const [r, p] = await Promise.all([
+      db.from('parcelas_receber').select('*, contas_receber(descricao, unidade_id, clientes(nome), formas_pagamento(nome, taxa_percentual), unidades(cor))').or(filtro).order('vencimento'),
+      db.from('contas_pagar').select('*, unidades(cor)').or(filtro).order('vencimento'),
+    ])
+    setRec(r.data || []); setPag(p.data || [])
+  }
+  useEffect(() => { carregar() }, [mes])
+  useEffect(() => {
+    Promise.all([
+      db.from('unidades').select('id,nome').eq('ativa', true).order('nome'),
+      db.from('clientes').select('id,nome').order('nome'),
+      db.from('formas_pagamento').select('*').eq('ativa', true).order('nome'),
+    ]).then(([u, c, f]) => setRef({ unidades: u.data || [], clientes: c.data || [], formas: f.data || [] }))
+  }, [])
+  const novoRec = (p = {}) => setForm({ tipo: 'receber', unidade_id: '', cliente_id: '', agendamento_id: '', forma_id: '', descricao: '', valor: '', parcelas: 1, data: hojeIso, recebido: true, ...p })
+  const novoPag = () => setForm({ tipo: 'pagar', unidade_id: '', descricao: '', valor: '', data: hojeIso, meses: 1 })
+  useEffect(() => { if (prefill) { setAba('receber'); novoRec(prefill); limparPrefill() } }, [prefill])
+
+  const salvar = async () => {
+    const total = Number(form.valor)
+    if (!form.unidade_id || !form.descricao.trim() || !(total > 0)) return setErro('Preencha unidade, descrição e valor.')
+    const falhou = () => setErro('Não foi possível salvar. Tente de novo.')
+    if (form.tipo === 'pagar') {
+      const n = Math.max(1, Number(form.meses) || 1)
+      const linhas = Array.from({ length: n }, (_, k) => ({
+        unidade_id: form.unidade_id, valor: total, vencimento: somaMeses(form.data, k), recorrente: n > 1,
+        descricao: n > 1 ? `${form.descricao} (${k + 1}/${n})` : form.descricao,
+      }))
+      if ((await db.from('contas_pagar').insert(linhas)).error) return falhou()
+    } else {
+      const n = Math.max(1, Number(form.parcelas) || 1)
+      const { data: conta, error } = await db.from('contas_receber').insert({
+        unidade_id: form.unidade_id, cliente_id: form.cliente_id || null, agendamento_id: form.agendamento_id || null,
+        forma_pagamento_id: form.forma_id || null, descricao: form.descricao, valor_total: total,
+      }).select().single()
+      if (error) return falhou()
+      const base = Math.floor(total / n * 100) / 100
+      const linhas = Array.from({ length: n }, (_, k) => ({
+        conta_id: conta.id, numero: k + 1, vencimento: somaMeses(form.data, k),
+        valor: k < n - 1 ? base : Number((total - base * (n - 1)).toFixed(2)),
+        ...(form.recebido && k === 0 ? { status: 'paga', pago_em: hojeIso } : {}),
+      }))
+      if ((await db.from('parcelas_receber').insert(linhas)).error) return falhou()
+    }
+    setForm(null); setErro(''); carregar()
+  }
+  const baixar = async (tabela, i) => { await db.from(tabela).update({ status: 'paga', pago_em: hojeIso }).eq('id', i.id); carregar() }
+
+  const R = rec.filter(i => !fUnidade || i.contas_receber?.unidade_id === fUnidade)
+  const P = pag.filter(i => !fUnidade || i.unidade_id === fUnidade)
+  const soma = l => l.reduce((t, i) => t + Number(i.valor), 0)
+  const recebido = soma(R.filter(i => i.status === 'paga')), pago = soma(P.filter(i => i.status === 'paga'))
+  const aReceber = soma(R.filter(i => i.status === 'pendente' && i.vencimento >= ini))
+  const aPagar = soma(P.filter(i => i.status === 'pendente' && i.vencimento >= ini))
+  const atrasR = soma(R.filter(i => i.status === 'pendente' && i.vencimento < ini))
+  const atrasP = soma(P.filter(i => i.status === 'pendente' && i.vencimento < ini))
+  const campo = k => v => setForm({ ...form, [k]: v })
+  const situacao = i => i.status === 'paga' ? `Paga em ${dataBr(i.pago_em + 'T12:00')}` : i.vencimento < hojeIso ? 'Atrasada' : 'Pendente'
+
+  return (
+    <>
+      <h1>Financeiro</h1>
+      <div className="cartao form">
+        {[['resumo', 'Resumo'], ['receber', 'A receber'], ['pagar', 'A pagar']].map(([k, r]) => <button key={k} className={aba === k ? '' : 'leve'} onClick={() => setAba(k)}>{r}</button>)}
+        <button className="leve" onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1))}>Mês anterior</button>
+        <strong style={{ textTransform: 'capitalize' }}>{mes.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</strong>
+        <button className="leve" onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() + 1, 1))}>Próximo mês</button>
+        <Sel valor={fUnidade} onChange={setFUnidade} vazio="Todas as unidades" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
+      </div>
+
+      {aba === 'resumo' && (
+        <>
+          <div className="resumo">
+            {[['Recebido no mês', recebido], ['A receber no mês', aReceber], ['Pago no mês', pago], ['A pagar no mês', aPagar],
+              ['Saldo realizado', recebido - pago], ['Saldo previsto', recebido - pago + aReceber - aPagar]].map(([t, v]) => (
+              <div key={t} className="cartao"><small>{t}</small><div className="numero">{brl(v)}</div></div>
+            ))}
+          </div>
+          {(atrasR > 0 || atrasP > 0) && <p className="erro">Em atraso de meses anteriores: {brl(atrasR)} a receber e {brl(atrasP)} a pagar.</p>}
+        </>
+      )}
+
+      {aba !== 'resumo' && <div style={{ marginBottom: 12 }}><button onClick={aba === 'receber' ? () => novoRec() : novoPag}>{aba === 'receber' ? 'Novo recebimento' : 'Nova despesa'}</button></div>}
+
+      {form && (
+        <div className="cartao form">
+          <Sel valor={form.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
+          <input placeholder="Descrição" value={form.descricao} onChange={e => campo('descricao')(e.target.value)} />
+          <input type="number" step="0.01" placeholder="Valor total (R$)" value={form.valor} onChange={e => campo('valor')(e.target.value)} />
+          {form.tipo === 'receber' ? (
+            <>
+              <Sel valor={form.cliente_id} onChange={campo('cliente_id')} vazio="Cliente (opcional)" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
+              <Sel valor={form.forma_id} onChange={campo('forma_id')} vazio="Forma de pagamento" opcoes={ref.formas.map(p => [p.id, p.nome])} />
+              <input type="number" min="1" placeholder="Parcelas" value={form.parcelas} onChange={e => campo('parcelas')(e.target.value)} style={{ width: 100 }} />
+              <label>1º vencimento <input type="date" value={form.data} onChange={e => campo('data')(e.target.value)} /></label>
+              <label><input type="checkbox" checked={form.recebido} onChange={e => campo('recebido')(e.target.checked)} /> Primeira parcela já recebida</label>
+            </>
+          ) : (
+            <>
+              <label>Vencimento <input type="date" value={form.data} onChange={e => campo('data')(e.target.value)} /></label>
+              <input type="number" min="1" placeholder="Repetir por (meses)" value={form.meses} onChange={e => campo('meses')(e.target.value)} style={{ width: 160 }} />
+            </>
+          )}
+          <button onClick={salvar}>Salvar</button>
+          <button className="leve" onClick={() => { setForm(null); setErro('') }}>Cancelar</button>
+          {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
+        </div>
+      )}
+
+      {aba === 'receber' && (R.length === 0 ? <p className="vazio">Nada a receber ou recebido neste mês.</p> : R.map(i => {
+        const c = i.contas_receber, taxa = Number(c?.formas_pagamento?.taxa_percentual || 0)
+        return (
+          <div key={i.id} className="cartao linha" style={{ borderLeft: `6px solid ${c?.unidades?.cor || '#C4677F'}` }}>
+            <div>
+              <strong>{dataBr(i.vencimento + 'T12:00')}</strong> · {c?.clientes?.nome || 'Sem cliente'} · {c?.descricao} (parcela {i.numero})<br />
+              <small>{brl(i.valor)}{taxa > 0 && ` (líquido ${brl(i.valor * (1 - taxa / 100))})`} · {c?.formas_pagamento?.nome || 'Forma não informada'} · {situacao(i)}</small>
+            </div>
+            {i.status === 'pendente' && <button onClick={() => baixar('parcelas_receber', i)}>Marcar como recebida</button>}
+          </div>
+        )
+      }))}
+
+      {aba === 'pagar' && (P.length === 0 ? <p className="vazio">Nenhuma despesa a pagar ou paga neste mês.</p> : P.map(i => (
+        <div key={i.id} className="cartao linha" style={{ borderLeft: `6px solid ${i.unidades?.cor || '#C4677F'}` }}>
+          <div><strong>{dataBr(i.vencimento + 'T12:00')}</strong> · {i.descricao}<br /><small>{brl(i.valor)} · {situacao(i)}</small></div>
+          {i.status === 'pendente' && <button onClick={() => baixar('contas_pagar', i)}>Marcar como paga</button>}
+        </div>
+      )))}
+    </>
+  )
+}
+
 function App() {
   const [sessao, setSessao] = useState(null)
   const [carregando, setCarregando] = useState(true)
   const [usuario, setUsuario] = useState(null)
   const [pagina, setPagina] = useState('painel')
   const [prefill, setPrefill] = useState(null)
+  const [prefillRec, setPrefillRec] = useState(null)
 
   useEffect(() => {
     db.auth.getSession().then(({ data }) => { setSessao(data.session); setCarregando(false) })
@@ -469,9 +715,10 @@ function App() {
       </nav>
       <main>
         {pagina === 'painel' ? <Painel irParaAgenda={p => { setPrefill(p); setPagina('agenda') }} /> :
-         pagina === 'agenda' ? <Agenda usuario={usuario} prefill={prefill} limparPrefill={() => setPrefill(null)} /> :
+         pagina === 'agenda' ? <Agenda usuario={usuario} prefill={prefill} limparPrefill={() => setPrefill(null)} irParaReceber={p => { setPrefillRec(p); setPagina('financeiro') }} /> :
+         pagina === 'financeiro' ? <Financeiro prefill={prefillRec} limparPrefill={() => setPrefillRec(null)} /> :
          pagina === 'clientes' ? <Clientes admin={admin} /> :
-         pagina === 'admin' ? <><Unidades /><Servicos /></> : (
+         pagina === 'admin' ? <><Equipe eu={usuario.id} /><Unidades /><Servicos /><Formas /></> : (
           <>
             <h1>{itens.find(([k]) => k === pagina)?.[1]}</h1>
             <p className="vazio">Esta tela será o próximo módulo a construir.</p>
