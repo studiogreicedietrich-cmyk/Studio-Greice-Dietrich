@@ -28,6 +28,14 @@ button.leve { background:var(--areia); color:var(--vinho) }
 .linha { display:flex; justify-content:space-between; align-items:center }
 .vazio { color:#8a6a72 } .erro { color:#b3261e; margin:0 }
 .login { max-width:340px; margin:12vh auto; display:flex; flex-direction:column; gap:12px; padding:0 16px }
+main { max-width:1240px }
+select { font:inherit; padding:10px 12px; border:1px solid var(--areia); border-radius:8px; background:#fff; color:var(--vinho) }
+.semana { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:10px }
+.dia { background:var(--branco); border:1px solid var(--areia); border-radius:12px; padding:10px; min-height:120px }
+.dia h3 { margin:0 0 8px; font:600 1.1rem 'Cormorant Garamond', Georgia, serif; text-transform:capitalize }
+.atend { background:var(--nude); border-radius:8px; padding:8px; margin-bottom:8px; font-size:.92rem }
+.atend select { width:100%; margin-top:6px; padding:4px 6px; font-size:.85rem }
+.atend.apagado { opacity:.5; text-decoration:line-through }
 @media (max-width:760px) { .app { grid-template-columns:1fr } .menu { flex-direction:row; flex-wrap:wrap; border-right:0; border-bottom:1px solid var(--areia) } .menu h2 { width:100% } main { padding:20px } }
 </style>
 </head>
@@ -41,12 +49,12 @@ button.leve { background:var(--areia); color:var(--vinho) }
 
 <script type="text/babel">
 // ====== CONFIGURAÇÃO: cole aqui os dados do seu Supabase (Project Settings > API) ======
-const SUPABASE_URL = 'https://qyzyczyfucerqxhffgjm.supabase.co'        // ex.: https://abcdxyz.supabase.co
-const SUPABASE_ANON_KEY = 'sb_publishable_govM7LdQaURB3aC3W9xz3g_coSt4HQU' // chave "anon public"
+const SUPABASE_URL = 'COLE_AQUI_A_URL'        // ex.: https://abcdxyz.supabase.co
+const SUPABASE_ANON_KEY = 'COLE_AQUI_A_CHAVE_ANON' // chave "anon public"
 // ========================================================================================
 
 const { useState, useEffect } = React
-const configurado = !SUPABASE_URL.includes('COLE_AQUI') && !SUPABASE_ANON_KEY.includes('COLE_AQUI')
+const configurado = !SUPABASE_URL.includes('https://qyzyczyfucerqxhffgjm.supabase.co') && !SUPABASE_ANON_KEY.includes('sb_publishable_govM7LdQaURB3aC3W9xz3g_coSt4HQU')
 const db = configurado ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null
 
 // [chave, rótulo, somenteAdmin]
@@ -117,6 +125,179 @@ function Unidades() {
   )
 }
 
+const brl = v => Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const fmtHora = d => new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+const somaDias = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x }
+const inicioSemana = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return somaDias(x, -((x.getDay() + 6) % 7)) }
+const isoData = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const ROTULO = { agendado: 'Agendado', confirmado: 'Confirmado', concluido: 'Concluído', cancelado: 'Cancelado', faltou: 'Faltou' }
+
+function Sel({ valor, onChange, opcoes, vazio }) {
+  return (
+    <select value={valor} onChange={e => onChange(e.target.value)}>
+      <option value="">{vazio}</option>
+      {opcoes.map(([id, rotulo]) => <option key={id} value={id}>{rotulo}</option>)}
+    </select>
+  )
+}
+
+function Servicos() {
+  const [lista, setLista] = useState([])
+  const [f, setF] = useState({ nome: '', preco: '', duracao_min: 60 })
+  const carregar = async () => { const { data } = await db.from('servicos').select('*').order('nome'); setLista(data || []) }
+  useEffect(() => { carregar() }, [])
+  const salvar = async () => {
+    if (!f.nome.trim()) return
+    await db.from('servicos').insert({ nome: f.nome, preco: Number(f.preco) || 0, duracao_min: Number(f.duracao_min) || 60 })
+    setF({ nome: '', preco: '', duracao_min: 60 }); carregar()
+  }
+  const alternar = async s => { await db.from('servicos').update({ ativo: !s.ativo }).eq('id', s.id); carregar() }
+  return (
+    <>
+      <h1 style={{ marginTop: 32 }}>Serviços</h1>
+      <div className="cartao form">
+        <input placeholder="Nome (ex.: Design de sobrancelha)" value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} />
+        <input type="number" placeholder="Preço (R$)" value={f.preco} onChange={e => setF({ ...f, preco: e.target.value })} />
+        <input type="number" placeholder="Duração (min)" value={f.duracao_min} onChange={e => setF({ ...f, duracao_min: e.target.value })} />
+        <button onClick={salvar}>Salvar serviço</button>
+      </div>
+      {lista.length === 0 && <p className="vazio">Nenhum serviço cadastrado. Cadastre o primeiro acima.</p>}
+      {lista.map(s => (
+        <div key={s.id} className="cartao linha">
+          <div><strong>{s.nome}</strong><br /><small>{brl(s.preco)} · {s.duracao_min} min</small></div>
+          <button className="leve" onClick={() => alternar(s)}>{s.ativo ? 'Desativar' : 'Reativar'}</button>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function Clientes({ admin }) {
+  const [lista, setLista] = useState([])
+  const [busca, setBusca] = useState('')
+  const [f, setF] = useState({ nome: '', telefone: '', email: '' })
+  const carregar = async () => { const { data } = await db.from('clientes').select('*').order('nome'); setLista(data || []) }
+  useEffect(() => { carregar() }, [])
+  const salvar = async () => {
+    if (!f.nome.trim()) return
+    await db.from('clientes').insert(f)
+    setF({ nome: '', telefone: '', email: '' }); carregar()
+  }
+  const campo = k => e => setF({ ...f, [k]: e.target.value })
+  const vistos = lista.filter(c => c.nome.toLowerCase().includes(busca.toLowerCase()))
+  return (
+    <>
+      <h1>Clientes</h1>
+      {admin && (
+        <div className="cartao form">
+          <input placeholder="Nome" value={f.nome} onChange={campo('nome')} />
+          <input placeholder="Telefone / WhatsApp" value={f.telefone} onChange={campo('telefone')} />
+          <input placeholder="E-mail" value={f.email} onChange={campo('email')} />
+          <button onClick={salvar}>Salvar cliente</button>
+        </div>
+      )}
+      <input placeholder="Buscar cliente pelo nome" value={busca} onChange={e => setBusca(e.target.value)} style={{ marginBottom: 12, width: '100%' }} />
+      {vistos.length === 0 && <p className="vazio">Nenhum cliente encontrado.</p>}
+      {vistos.map(c => (
+        <div key={c.id} className="cartao"><strong>{c.nome}</strong><br /><small>{c.telefone} {c.email}</small></div>
+      ))}
+    </>
+  )
+}
+
+function Agenda({ usuario }) {
+  const [semana, setSemana] = useState(inicioSemana(new Date()))
+  const [itens, setItens] = useState([])
+  const [ref, setRef] = useState({ unidades: [], clientes: [], servicos: [], profs: [] })
+  const [fUnidade, setFUnidade] = useState('')
+  const [fProf, setFProf] = useState('')
+  const [novo, setNovo] = useState(null)
+  const [erro, setErro] = useState('')
+
+  useEffect(() => {
+    Promise.all([
+      db.from('unidades').select('*').eq('ativa', true).order('nome'),
+      db.from('clientes').select('id,nome').order('nome'),
+      db.from('servicos').select('*').eq('ativo', true).order('nome'),
+      db.from('usuarios').select('id,nome').eq('ativo', true).order('nome'),
+    ]).then(([u, c, s, p]) => setRef({ unidades: u.data || [], clientes: c.data || [], servicos: s.data || [], profs: p.data || [] }))
+  }, [])
+
+  const carregar = async () => {
+    const { data } = await db.from('agendamentos')
+      .select('*, clientes(nome), servicos(nome), usuarios(nome), unidades(nome,cor)')
+      .gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio')
+    setItens(data || [])
+  }
+  useEffect(() => { carregar() }, [semana])
+
+  const abrirNovo = () => setNovo({ cliente_id: '', servico_id: '', unidade_id: '', profissional_id: usuario.id, data: isoData(new Date()), hora: '09:00' })
+  const salvar = async () => {
+    const s = ref.servicos.find(x => x.id === novo.servico_id)
+    if (!novo.cliente_id || !s || !novo.unidade_id || !novo.profissional_id || !novo.data || !novo.hora) return setErro('Preencha todos os campos.')
+    const ini = new Date(`${novo.data}T${novo.hora}`)
+    const fim = new Date(ini.getTime() + s.duracao_min * 60000)
+    const { error } = await db.from('agendamentos').insert({
+      cliente_id: novo.cliente_id, servico_id: novo.servico_id, unidade_id: novo.unidade_id,
+      profissional_id: novo.profissional_id, inicio: ini.toISOString(), fim: fim.toISOString(),
+    })
+    if (error) return setErro(error.code === '23P01' ? 'Esse horário já está ocupado para esta profissional.' : 'Não foi possível salvar. Tente de novo.')
+    setNovo(null); setErro(''); carregar()
+  }
+  const mudarStatus = async (a, status) => { await db.from('agendamentos').update({ status }).eq('id', a.id); carregar() }
+
+  const dias = [0, 1, 2, 3, 4, 5, 6].map(n => somaDias(semana, n))
+  const visiveis = itens.filter(i => (!fUnidade || i.unidade_id === fUnidade) && (!fProf || i.profissional_id === fProf))
+  const campo = k => v => setNovo({ ...novo, [k]: v })
+  const tituloSemana = `${dias[0].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })} a ${dias[6].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}`
+
+  return (
+    <>
+      <h1>Agenda</h1>
+      <div className="cartao form">
+        <button className="leve" onClick={() => setSemana(somaDias(semana, -7))}>Semana anterior</button>
+        <strong>{tituloSemana}</strong>
+        <button className="leve" onClick={() => setSemana(somaDias(semana, 7))}>Próxima semana</button>
+        <Sel valor={fUnidade} onChange={setFUnidade} vazio="Todas as unidades" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
+        {usuario.perfil === 'admin' && <Sel valor={fProf} onChange={setFProf} vazio="Todas as profissionais" opcoes={ref.profs.map(p => [p.id, p.nome])} />}
+        <button onClick={abrirNovo}>Novo atendimento</button>
+      </div>
+
+      {novo && (
+        <div className="cartao form">
+          <Sel valor={novo.cliente_id} onChange={campo('cliente_id')} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
+          <Sel valor={novo.servico_id} onChange={campo('servico_id')} vazio="Serviço" opcoes={ref.servicos.map(s => [s.id, `${s.nome} (${s.duracao_min} min)`])} />
+          <Sel valor={novo.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
+          {usuario.perfil === 'admin' && <Sel valor={novo.profissional_id} onChange={campo('profissional_id')} vazio="Profissional" opcoes={ref.profs.map(p => [p.id, p.nome])} />}
+          <input type="date" value={novo.data} onChange={e => campo('data')(e.target.value)} />
+          <input type="time" value={novo.hora} onChange={e => campo('hora')(e.target.value)} />
+          <button onClick={salvar}>Salvar atendimento</button>
+          <button className="leve" onClick={() => { setNovo(null); setErro('') }}>Cancelar</button>
+          {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
+        </div>
+      )}
+
+      <div className="semana">
+        {dias.map(d => (
+          <div key={d.toISOString()} className="dia">
+            <h3>{d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit' })}</h3>
+            {visiveis.filter(i => new Date(i.inicio).toDateString() === d.toDateString()).map(i => (
+              <div key={i.id} className={'atend' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')} style={{ borderLeft: `5px solid ${i.unidades?.cor || '#C4677F'}` }}>
+                <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
+                <small>{i.servicos?.nome} · {i.usuarios?.nome}</small>
+                <select value={i.status} onChange={e => mudarStatus(i, e.target.value)}>
+                  {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      {visiveis.length === 0 && <p className="vazio">Nenhum atendimento nesta semana. Use "Novo atendimento" para marcar o primeiro.</p>}
+    </>
+  )
+}
+
 function App() {
   const [sessao, setSessao] = useState(null)
   const [carregando, setCarregando] = useState(true)
@@ -150,7 +331,9 @@ function App() {
         <button className="sair" onClick={() => db.auth.signOut()}>Sair</button>
       </nav>
       <main>
-        {pagina === 'admin' ? <Unidades /> : (
+        {pagina === 'agenda' ? <Agenda usuario={usuario} /> :
+         pagina === 'clientes' ? <Clientes admin={admin} /> :
+         pagina === 'admin' ? <><Unidades /><Servicos /></> : (
           <>
             <h1>{itens.find(([k]) => k === pagina)?.[1]}</h1>
             <p className="vazio">Esta tela será o próximo módulo a construir.</p>
