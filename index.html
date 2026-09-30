@@ -54,7 +54,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_govM7LdQaURB3aC3W9xz3g_coSt4HQU' // ch
 // ========================================================================================
 
 const { useState, useEffect } = React
-const configurado = !SUPABASE_URL.includes('https://qyzyczyfucerqxhffgjm.supabase.co') && !SUPABASE_ANON_KEY.includes('sb_publishable_govM7LdQaURB3aC3W9xz3g_coSt4HQU')
+const configurado = !SUPABASE_URL.includes('COLE_AQUI') && !SUPABASE_ANON_KEY.includes('COLE_AQUI')
 const db = configurado ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null
 
 // [chave, rótulo, somenteAdmin]
