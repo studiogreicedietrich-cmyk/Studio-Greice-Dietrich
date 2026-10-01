@@ -98,6 +98,11 @@ a.botao:hover { background:#F3C5D0 }
 .gatend .zaps { display:none } .gatend:hover .zaps { display:flex }
 .balao { background:#FFF0F3; border:1px solid var(--blush); border-radius:18px 18px 18px 4px; padding:14px 16px; white-space:pre-wrap; max-width:440px }
 .chips-campo { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px }
+.modal.largo { max-width:560px; max-height:90vh; overflow-y:auto }
+.campos { display:grid; grid-template-columns:1fr 1fr; gap:12px }
+.campo { display:flex; flex-direction:column; align-items:stretch; gap:4px; font-size:.86rem; color:var(--suave) }
+.campo.cheio { grid-column:1 / -1 }
+@media (max-width:560px) { .campos { grid-template-columns:1fr } }
 .hub { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:18px }
 .tile { display:flex; flex-direction:column; align-items:flex-start; gap:8px; text-align:left; padding:26px; border-radius:24px;
   background:#fff; color:var(--vinho); border:1px solid #F3E4DF; box-shadow:var(--sombra); transition:transform .25s, box-shadow .25s }
@@ -146,8 +151,8 @@ button:disabled { opacity:.6; cursor:wait }
 
 <script type="text/babel">
 // ====== CONFIGURAÇÃO: cole aqui os dados do seu Supabase (Project Settings > API) ======
-const SUPABASE_URL = 'https://qyzyczyfucerqxhffgjm.supabase.co/'        // ex.: https://abcdxyz.supabase.co
-const SUPABASE_ANON_KEY = 'sb_publishable_govM7LdQaURB3aC3W9xz3g_coSt4HQU' // chave "anon public"
+const SUPABASE_URL = 'COLE_AQUI_A_URL'        // ex.: https://abcdxyz.supabase.co
+const SUPABASE_ANON_KEY = 'COLE_AQUI_A_CHAVE_ANON' // chave "anon public"
 // ========================================================================================
 
 const { useState, useEffect } = React
@@ -1239,6 +1244,63 @@ function Formas() {
   )
 }
 
+function EditarLancamento({ tipo, item, listas, onSalvo, onFechar }) {
+  const c = item.contas_receber
+  const base = { valor: item.valor, vencimento: item.vencimento, status: item.status, pago_em: item.pago_em || isoData(new Date()) }
+  const [f, setF] = useState(tipo === 'receber'
+    ? { ...base, descricao: c?.descricao || '', unidade_id: c?.unidade_id || '', cliente_id: c?.cliente_id || '', forma_id: c?.forma_pagamento_id || '' }
+    : { ...base, descricao: item.descricao, unidade_id: item.unidade_id })
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const campo = k => v => setF({ ...f, [k]: v })
+
+  const salvar = async () => {
+    const valor = Number(f.valor)
+    if (!f.descricao.trim() || !f.unidade_id || !(valor > 0) || !f.vencimento) return setErro('Preencha descrição, unidade, valor e vencimento.')
+    if (f.status === 'paga' && !f.pago_em) return setErro('Informe a data do pagamento.')
+    setSalvando(true)
+    const parcela = { valor, vencimento: f.vencimento, status: f.status, pago_em: f.status === 'paga' ? f.pago_em : null }
+    let falhou
+    if (tipo === 'receber') {
+      falhou = (await db.from('contas_receber').update({ descricao: f.descricao.trim(), unidade_id: f.unidade_id, cliente_id: f.cliente_id || null, forma_pagamento_id: f.forma_id || null }).eq('id', item.conta_id)).error
+        || (await db.from('parcelas_receber').update(parcela).eq('id', item.id)).error
+      if (!falhou) {
+        const { data: ps } = await db.from('parcelas_receber').select('valor, status').eq('conta_id', item.conta_id)
+        const total = (ps || []).filter(x => x.status !== 'cancelada').reduce((t, x) => t + Number(x.valor), 0)
+        await db.from('contas_receber').update({ valor_total: total }).eq('id', item.conta_id)
+      }
+    } else {
+      falhou = (await db.from('contas_pagar').update({ descricao: f.descricao.trim(), unidade_id: f.unidade_id, ...parcela }).eq('id', item.id)).error
+    }
+    if (falhou) { setErro(FALHA); setSalvando(false); return }
+    onSalvo()
+  }
+
+  return (
+    <div className="fundo" onClick={onFechar}>
+      <div className="modal largo" onClick={e => e.stopPropagation()}>
+        <h2>{tipo === 'receber' ? 'Editar recebimento' : 'Editar despesa'}</h2>
+        {tipo === 'receber' && <p className="vazio">Descrição, unidade, cliente e forma de pagamento valem para todas as parcelas deste recebimento. Valor, vencimento e situação valem só para esta parcela ({item.numero}).</p>}
+        <div className="campos">
+          <label className="campo cheio">Descrição<input value={f.descricao} onChange={e => campo('descricao')(e.target.value)} /></label>
+          <label className="campo">Unidade<Sel valor={f.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={listas.unidades.map(u => [u.id, u.nome])} /></label>
+          {tipo === 'receber' && <label className="campo">Cliente<Sel valor={f.cliente_id} onChange={campo('cliente_id')} vazio="Sem cliente" opcoes={listas.clientes.map(x => [x.id, x.nome])} /></label>}
+          {tipo === 'receber' && <label className="campo">Forma de pagamento<Sel valor={f.forma_id} onChange={campo('forma_id')} vazio="Não informada" opcoes={listas.formas.map(x => [x.id, x.nome])} /></label>}
+          <label className="campo">Valor (R$)<input type="number" step="0.01" value={f.valor} onChange={e => campo('valor')(e.target.value)} /></label>
+          <label className="campo">Vencimento<input type="date" value={f.vencimento} onChange={e => campo('vencimento')(e.target.value)} /></label>
+          <label className="campo">Situação<Sel valor={f.status} onChange={campo('status')} vazio="Situação" opcoes={[['pendente', 'Pendente'], ['paga', tipo === 'receber' ? 'Recebida' : 'Paga']]} /></label>
+          {f.status === 'paga' && <label className="campo">Data do pagamento<input type="date" value={f.pago_em} onChange={e => campo('pago_em')(e.target.value)} /></label>}
+        </div>
+        {erro && <p className="erro" style={{ marginTop: 10 }}>{erro}</p>}
+        <div className="form" style={{ marginTop: 16 }}>
+          <button onClick={salvar} disabled={salvando}>Salvar alterações</button>
+          <button className="leve" onClick={onFechar}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function Financeiro({ prefill, limparPrefill }) {
   const hoje = new Date(), hojeIso = isoData(hoje)
   const [aba, setAba] = useState('resumo')
@@ -1250,12 +1312,13 @@ function Financeiro({ prefill, limparPrefill }) {
   const [form, setForm] = useState(null)
   const [erro, setErro] = useState('')
   const [exclR, setExclR] = useState(null)
+  const [edit, setEdit] = useState(null)
   const ini = isoData(mes), fim = isoData(new Date(mes.getFullYear(), mes.getMonth() + 1, 0))
 
   const carregar = async () => {
     const filtro = `and(status.eq.pendente,vencimento.lte.${fim}),and(pago_em.gte.${ini},pago_em.lte.${fim})`
     const [r, p] = await Promise.all([
-      db.from('parcelas_receber').select('*, contas_receber(descricao, unidade_id, clientes(nome), formas_pagamento(nome, taxa_percentual), unidades(cor))').or(filtro).order('vencimento'),
+      db.from('parcelas_receber').select('*, contas_receber(descricao, unidade_id, cliente_id, forma_pagamento_id, clientes(nome), formas_pagamento(nome, taxa_percentual), unidades(cor))').or(filtro).order('vencimento'),
       db.from('contas_pagar').select('*, unidades(cor)').or(filtro).order('vencimento'),
     ])
     setRec(r.data || []); setPag(p.data || [])
@@ -1317,6 +1380,7 @@ function Financeiro({ prefill, limparPrefill }) {
   return (
     <>
       <h1>Financeiro</h1>
+      {edit && <EditarLancamento tipo={edit.tipo} item={edit.item} listas={ref} onFechar={() => setEdit(null)} onSalvo={() => { setEdit(null); carregar() }} />}
       {exclR && <Justificativa titulo={exclR.titulo} onCancelar={() => setExclR(null)}
         onConfirmar={async j => { const m = await excluirRegistro('recebimento', exclR.id, j); if (!m) { setExclR(null); carregar() } return m }} />}
       <div className="cartao form">
@@ -1376,6 +1440,7 @@ function Financeiro({ prefill, limparPrefill }) {
             </div>
             <div className="form">
               {i.status === 'pendente' && <button onClick={() => baixar('parcelas_receber', i)}>Marcar como recebida</button>}
+              <button className="leve" style={{ padding: '6px 16px' }} onClick={() => setEdit({ tipo: 'receber', item: i })}>Editar</button>
               <button className="excluir" title="Excluir este recebimento e todas as parcelas" onClick={() => excluirReceb(i)}>Excluir</button>
             </div>
           </div>
@@ -1385,7 +1450,10 @@ function Financeiro({ prefill, limparPrefill }) {
       {aba === 'pagar' && (P.length === 0 ? <p className="vazio">Nenhuma despesa a pagar ou paga neste mês.</p> : P.map(i => (
         <div key={i.id} className="cartao linha" style={{ borderLeft: `6px solid ${i.unidades?.cor || '#C4677F'}` }}>
           <div><strong>{dataBr(i.vencimento + 'T12:00')}</strong> · {i.descricao}<br /><small>{brl(i.valor)} · {situacao(i)}</small></div>
-          {i.status === 'pendente' && <button onClick={() => baixar('contas_pagar', i)}>Marcar como paga</button>}
+          <div className="form">
+            {i.status === 'pendente' && <button onClick={() => baixar('contas_pagar', i)}>Marcar como paga</button>}
+            <button className="leve" style={{ padding: '6px 16px' }} onClick={() => setEdit({ tipo: 'pagar', item: i })}>Editar</button>
+          </div>
         </div>
       )))}
     </>
