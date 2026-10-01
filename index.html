@@ -92,6 +92,15 @@ a.botao:hover { background:#F3C5D0 }
 .barra strong { text-align:right }
 .trilho { background:var(--blush); border-radius:999px; height:12px; overflow:hidden }
 .trilho div { height:100%; border-radius:999px; background:linear-gradient(90deg, #E6A6B8, #C45F7E); transition:width .5s ease }
+.hub { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:18px }
+.tile { display:flex; flex-direction:column; align-items:flex-start; gap:8px; text-align:left; padding:26px; border-radius:24px;
+  background:#fff; color:var(--vinho); border:1px solid #F3E4DF; box-shadow:var(--sombra); transition:transform .25s, box-shadow .25s }
+.tile:hover { transform:translateY(-5px); box-shadow:0 16px 36px rgba(181,81,109,.2) }
+.tile-icone { width:54px; height:54px; border-radius:18px; display:grid; place-items:center; background:var(--blush); color:var(--rosa-esc); transition:background .25s, color .25s, transform .25s }
+.tile:hover .tile-icone { background:linear-gradient(135deg, #E08AA0, #C45F7E); color:#fff; transform:rotate(-6deg) scale(1.06) }
+.tile-titulo { font:600 1.5rem 'Cormorant Garamond', serif; margin-top:6px }
+.tile-desc { color:var(--suave); font:400 .93rem/1.4 'Jost', sans-serif }
+.sec { animation:entra .3s ease }
 .fundo { position:fixed; inset:0; z-index:50; display:grid; place-items:center; background:rgba(74,42,54,.45); backdrop-filter:blur(3px); animation:entra .2s ease }
 .modal { background:#fff; border-radius:24px; padding:26px; width:calc(100% - 32px); max-width:460px; box-shadow:0 20px 60px rgba(74,42,54,.3) }
 .modal h2 { margin-bottom:6px } .modal p { margin:0 0 12px }
@@ -162,6 +171,8 @@ const ICONES = {
   pacotes: <><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7M7.5 8a2.5 2.5 0 0 1 0-5C11 3 12 8 12 8s1-5 4.5-5a2.5 2.5 0 0 1 0 5" /></>,
   relatorios: <path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7" />,
   admin: <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />,
+  unidades: <path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6" />,
+  lixeira: <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />,
   sair: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
 }
 function Icone({ nome, tam = 24 }) {
@@ -214,7 +225,7 @@ function Unidades() {
   const campo = k => e => setForm({ ...form, [k]: e.target.value })
   return (
     <>
-      <h1 style={{ marginTop: 32 }}>Unidades</h1>
+      <h1>Unidades</h1>
       <div className="cartao form">
         <input placeholder="Nome da unidade" value={form.nome} onChange={campo('nome')} />
         <input placeholder="Endereço" value={form.endereco} onChange={campo('endereco')} />
@@ -264,7 +275,7 @@ function Servicos() {
   const alternar = async s => { await db.from('servicos').update({ ativo: !s.ativo }).eq('id', s.id); carregar() }
   return (
     <>
-      <h1 style={{ marginTop: 32 }}>Serviços</h1>
+      <h1>Serviços</h1>
       <div className="cartao form">
         <input placeholder="Nome (ex.: Design de sobrancelha)" value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} />
         <input type="number" placeholder="Preço (R$)" value={f.preco} onChange={e => setF({ ...f, preco: e.target.value })} />
@@ -468,7 +479,7 @@ function Exclusoes() {
   useEffect(() => { db.from('exclusoes').select('*, usuarios(nome)').order('criado_em', { ascending: false }).limit(30).then(({ data }) => setLista(data || [])) }, [])
   return (
     <>
-      <h1 style={{ marginTop: 32 }}>Registro de exclusões</h1>
+      <h1>Registro de exclusões</h1>
       {lista.length === 0 && <p className="vazio">Nenhuma exclusão registrada.</p>}
       {lista.map(x => (
         <div key={x.id} className="cartao">
@@ -798,6 +809,43 @@ function Relatorios() {
   )
 }
 
+const SECOES = [
+  ['equipe', 'Equipe', 'clientes', 'Pessoas, perfis de acesso e as unidades em que cada uma atende'],
+  ['unidades', 'Unidades', 'unidades', 'Endereço, cor na agenda e horário de funcionamento'],
+  ['servicos', 'Serviços', 'brilho', 'Preços, durações e retorno das clientes'],
+  ['pagamentos', 'Formas de pagamento', 'financeiro', 'Taxas e prazos de cada forma de receber'],
+  ['exclusoes', 'Registro de exclusões', 'lixeira', 'Histórico de tudo que foi excluído, com a justificativa'],
+]
+
+function Administrativo({ eu }) {
+  const [sec, setSec] = useState(null)
+  if (!sec) return (
+    <>
+      <h1>Administrativo</h1>
+      <p className="vazio" style={{ marginTop: -6, marginBottom: 22 }}>Configurações da clínica. Escolha o que deseja ajustar.</p>
+      <div className="hub">
+        {SECOES.map(([k, titulo, icone, desc]) => (
+          <button key={k} className="tile" onClick={() => setSec(k)}>
+            <span className="tile-icone"><Icone nome={icone} tam={26} /></span>
+            <span className="tile-titulo">{titulo}</span>
+            <span className="tile-desc">{desc}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+  return (
+    <div className="sec" key={sec}>
+      <button className="leve" style={{ marginBottom: 18 }} onClick={() => setSec(null)}>← Administrativo</button>
+      {sec === 'equipe' && <Equipe eu={eu} />}
+      {sec === 'unidades' && <Unidades />}
+      {sec === 'servicos' && <Servicos />}
+      {sec === 'pagamentos' && <Formas />}
+      {sec === 'exclusoes' && <Exclusoes />}
+    </div>
+  )
+}
+
 const H0 = 7, H1 = 20, PX = 56
 function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir }) {
   const dia = dias[sel]
@@ -1082,7 +1130,7 @@ function Formas() {
   const salvar = (p, campo, v) => db.from('formas_pagamento').update({ [campo]: Number(v) || 0 }).eq('id', p.id)
   return (
     <>
-      <h1 style={{ marginTop: 32 }}>Formas de pagamento</h1>
+      <h1>Formas de pagamento</h1>
       {lista.map(p => (
         <div key={p.id} className="cartao linha">
           <strong>{p.nome}</strong>
@@ -1294,7 +1342,7 @@ function App() {
          pagina === 'compras' ? <Compras /> :
          pagina === 'pacotes' ? <Pacotes /> :
          pagina === 'relatorios' ? <Relatorios /> :
-         pagina === 'admin' ? <><Equipe eu={usuario.id} /><Unidades /><Servicos /><Formas /><Exclusoes /></> : (
+         pagina === 'admin' ? <Administrativo eu={usuario.id} /> : (
           <>
             <h1>{itens.find(([k]) => k === pagina)?.[1]}</h1>
             <p className="vazio">Esta tela será o próximo módulo a construir.</p>
