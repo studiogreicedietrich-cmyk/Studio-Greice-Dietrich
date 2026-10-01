@@ -88,7 +88,12 @@ a.botao:hover { background:#F3C5D0 }
 .gatend:hover select { display:block }
 .gatend.apagado { opacity:.5 }
 
+.barra { display:grid; grid-template-columns:150px 1fr 100px; gap:12px; align-items:center; margin:10px 0 }
+.barra strong { text-align:right }
+.trilho { background:var(--blush); border-radius:999px; height:12px; overflow:hidden }
+.trilho div { height:100%; border-radius:999px; background:linear-gradient(90deg, #E6A6B8, #C45F7E); transition:width .5s ease }
 @media (max-width:760px) {
+  .barra { grid-template-columns:100px 1fr 80px }
   .app { padding-left:0; padding-bottom:88px }
   .menu { inset:auto 0 0 0; width:100%; height:72px; flex-direction:row; justify-content:space-around; padding:8px; border-radius:24px 24px 0 0 }
   .menu:hover, .menu:focus-within { width:100% }
@@ -404,6 +409,323 @@ function Painel({ irParaAgenda }) {
   )
 }
 
+const PONTOS_POR_REAL = 1 // pontos de fidelidade ganhos a cada R$ 1 pago
+const FALHA = 'Não foi possível salvar. Tente de novo.'
+
+async function lancarReceber({ unidade_id, cliente_id, forma_id, descricao, total, parcelas, data, recebido, pacote_cliente_id }) {
+  const n = Math.max(1, Number(parcelas) || 1)
+  const { data: conta, error } = await db.from('contas_receber').insert({
+    unidade_id, cliente_id: cliente_id || null, forma_pagamento_id: forma_id || null,
+    pacote_cliente_id: pacote_cliente_id || null, descricao, valor_total: total,
+  }).select().single()
+  if (error) return error
+  const base = Math.floor(total / n * 100) / 100
+  const linhas = Array.from({ length: n }, (_, k) => ({
+    conta_id: conta.id, numero: k + 1, vencimento: somaMeses(data, k),
+    valor: k < n - 1 ? base : Number((total - base * (n - 1)).toFixed(2)),
+    ...(recebido && k === 0 ? { status: 'paga', pago_em: isoData(new Date()) } : {}),
+  }))
+  return (await db.from('parcelas_receber').insert(linhas)).error
+}
+
+function Compras() {
+  const [aba, setAba] = useState('compras')
+  const [ref, setRef] = useState({ unidades: [], fornecedores: [], produtos: [] })
+  const [compras, setCompras] = useState([])
+  const [estoque, setEstoque] = useState([])
+  const [unid, setUnid] = useState('')
+  const [form, setForm] = useState(null)
+  const [erro, setErro] = useState('')
+  const [nf, setNf] = useState('')
+  const [np, setNp] = useState({ nome: '', unidade_medida: 'un', estoque_minimo: '' })
+
+  const carregar = async () => {
+    const [u, f, p, c, e] = await Promise.all([
+      db.from('unidades').select('id,nome').eq('ativa', true).order('nome'),
+      db.from('fornecedores').select('*').order('nome'),
+      db.from('produtos').select('*').eq('ativo', true).order('nome'),
+      db.from('compras').select('*, fornecedores(nome), unidades(nome,cor), itens_compra(quantidade, produtos(nome))').order('data', { ascending: false }).limit(40),
+      db.from('estoque').select('*'),
+    ])
+    setRef({ unidades: u.data || [], fornecedores: f.data || [], produtos: p.data || [] })
+    setCompras(c.data || []); setEstoque(e.data || [])
+    setUnid(x => x || u.data?.[0]?.id || '')
+  }
+  useEffect(() => { carregar() }, [])
+
+  const novaCompra = () => setForm({ unidade_id: unid, fornecedor_id: '', itens: [{ produto_id: '', quantidade: '', custo: '' }], gerar: true, vencimento: isoData(somaDias(new Date(), 30)), parcelas: 1 })
+  const itemMuda = (k, campo, v) => setForm({ ...form, itens: form.itens.map((it, j) => j === k ? { ...it, [campo]: v } : it) })
+  const salvarCompra = async () => {
+    const itens = form.itens.filter(i => i.produto_id && Number(i.quantidade) > 0)
+    if (!form.unidade_id || itens.length === 0) return setErro('Escolha a unidade e ao menos um produto com quantidade.')
+    const total = itens.reduce((t, i) => t + Number(i.quantidade) * Number(i.custo || 0), 0)
+    const { data: c, error } = await db.from('compras').insert({ unidade_id: form.unidade_id, fornecedor_id: form.fornecedor_id || null, total }).select().single()
+    if (error) return setErro(FALHA)
+    const r = await db.from('itens_compra').insert(itens.map(i => ({ compra_id: c.id, produto_id: i.produto_id, quantidade: Number(i.quantidade), custo_unitario: Number(i.custo || 0) })))
+    if (r.error) return setErro(FALHA)
+    if (form.gerar && total > 0) {
+      const n = Math.max(1, Number(form.parcelas) || 1)
+      const forn = ref.fornecedores.find(x => x.id === form.fornecedor_id)?.nome
+      await db.from('contas_pagar').insert(Array.from({ length: n }, (_, k) => ({
+        unidade_id: form.unidade_id, fornecedor_id: form.fornecedor_id || null, compra_id: c.id,
+        descricao: `Compra${forn ? ' ' + forn : ''}${n > 1 ? ` (${k + 1}/${n})` : ''}`,
+        valor: Number((total / n).toFixed(2)), vencimento: somaMeses(form.vencimento, k),
+      })))
+    }
+    setForm(null); setErro(''); carregar()
+  }
+  const mudar = async (c, status) => { await db.from('compras').update({ status }).eq('id', c.id); carregar() }
+  const ajustar = async (pr, v) => {
+    await db.from('estoque').upsert({ produto_id: pr.id, unidade_id: unid, quantidade: Number(v) || 0 }, { onConflict: 'produto_id,unidade_id' })
+    carregar()
+  }
+  const addForn = async () => { if (!nf.trim()) return; await db.from('fornecedores').insert({ nome: nf }); setNf(''); carregar() }
+  const addProd = async () => {
+    if (!np.nome.trim()) return
+    await db.from('produtos').insert({ nome: np.nome, unidade_medida: np.unidade_medida || 'un', estoque_minimo: Number(np.estoque_minimo) || 0 })
+    setNp({ nome: '', unidade_medida: 'un', estoque_minimo: '' }); carregar()
+  }
+  const qtd = pr => Number(estoque.find(e => e.produto_id === pr.id && e.unidade_id === unid)?.quantidade || 0)
+  const baixos = ref.produtos.filter(pr => pr.estoque_minimo > 0 && qtd(pr) <= pr.estoque_minimo)
+
+  return (
+    <>
+      <h1>Compras e estoque</h1>
+      <div className="cartao form">
+        {[['compras', 'Compras'], ['estoque', 'Estoque'], ['cadastros', 'Produtos e fornecedores']].map(([k, r]) => <button key={k} className={aba === k ? '' : 'leve'} onClick={() => setAba(k)}>{r}</button>)}
+        {aba === 'estoque' && <Sel valor={unid} onChange={setUnid} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />}
+      </div>
+
+      {aba === 'compras' && (
+        <>
+          <div style={{ marginBottom: 12 }}><button onClick={novaCompra}>Nova compra</button></div>
+          {form && (
+            <div className="cartao form">
+              <Sel valor={form.unidade_id} onChange={v => setForm({ ...form, unidade_id: v })} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
+              <Sel valor={form.fornecedor_id} onChange={v => setForm({ ...form, fornecedor_id: v })} vazio="Fornecedor (opcional)" opcoes={ref.fornecedores.map(f => [f.id, f.nome])} />
+              {form.itens.map((it, k) => (
+                <div key={k} className="form" style={{ width: '100%' }}>
+                  <Sel valor={it.produto_id} onChange={v => itemMuda(k, 'produto_id', v)} vazio="Produto" opcoes={ref.produtos.map(x => [x.id, x.nome])} />
+                  <input type="number" placeholder="Quantidade" style={{ width: 120 }} value={it.quantidade} onChange={e => itemMuda(k, 'quantidade', e.target.value)} />
+                  <input type="number" step="0.01" placeholder="Custo unitário (R$)" style={{ width: 170 }} value={it.custo} onChange={e => itemMuda(k, 'custo', e.target.value)} />
+                </div>
+              ))}
+              <button className="leve" onClick={() => setForm({ ...form, itens: [...form.itens, { produto_id: '', quantidade: '', custo: '' }] })}>Adicionar produto</button>
+              <label style={{ width: '100%' }}><input type="checkbox" checked={form.gerar} onChange={e => setForm({ ...form, gerar: e.target.checked })} /> Gerar conta a pagar</label>
+              {form.gerar && (
+                <>
+                  <label>1º vencimento <input type="date" value={form.vencimento} onChange={e => setForm({ ...form, vencimento: e.target.value })} /></label>
+                  <input type="number" min="1" placeholder="Parcelas" style={{ width: 100 }} value={form.parcelas} onChange={e => setForm({ ...form, parcelas: e.target.value })} />
+                </>
+              )}
+              <button onClick={salvarCompra}>Salvar compra</button>
+              <button className="leve" onClick={() => { setForm(null); setErro('') }}>Cancelar</button>
+              {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
+            </div>
+          )}
+          {compras.length === 0 && <p className="vazio">Nenhuma compra registrada. Cadastre antes os produtos na aba "Produtos e fornecedores".</p>}
+          {compras.map(c => (
+            <div key={c.id} className="cartao linha" style={{ borderLeft: `6px solid ${c.unidades?.cor || '#D4708A'}`, opacity: c.status === 'cancelada' ? .5 : 1 }}>
+              <div>
+                <strong>{dataBr(c.data + 'T12:00')}</strong> · {c.fornecedores?.nome || 'Sem fornecedor'} · {c.unidades?.nome}<br />
+                <small>{c.itens_compra.map(i => `${i.quantidade}× ${i.produtos?.nome}`).join(', ')} · {brl(c.total)} · {c.status === 'pedido' ? 'Pedido feito' : c.status === 'recebida' ? 'Recebida' : 'Cancelada'}</small>
+              </div>
+              {c.status === 'pedido' && (
+                <div className="form">
+                  <button onClick={() => mudar(c, 'recebida')}>Marcar como recebida</button>
+                  <button className="leve" onClick={() => mudar(c, 'cancelada')}>Cancelar</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+
+      {aba === 'estoque' && (
+        <>
+          {baixos.length > 0 && <p className="erro" style={{ marginBottom: 12 }}>Estoque baixo: {baixos.map(b => b.nome).join(', ')}.</p>}
+          {ref.produtos.length === 0 && <p className="vazio">Nenhum produto cadastrado.</p>}
+          {ref.produtos.map(pr => (
+            <div key={pr.id + unid + qtd(pr)} className="cartao linha" style={{ borderLeft: `6px solid ${pr.estoque_minimo > 0 && qtd(pr) <= pr.estoque_minimo ? '#D4708A' : '#F1DDD6'}` }}>
+              <div><strong>{pr.nome}</strong><br /><small>Mínimo: {pr.estoque_minimo} {pr.unidade_medida}</small></div>
+              <label>Em estoque <input type="number" style={{ width: 100 }} defaultValue={qtd(pr)} onBlur={e => ajustar(pr, e.target.value)} /> {pr.unidade_medida}</label>
+            </div>
+          ))}
+        </>
+      )}
+
+      {aba === 'cadastros' && (
+        <>
+          <div className="cartao form">
+            <input placeholder="Nome do produto" value={np.nome} onChange={e => setNp({ ...np, nome: e.target.value })} />
+            <input placeholder="Medida (un, ml, g)" style={{ width: 150 }} value={np.unidade_medida} onChange={e => setNp({ ...np, unidade_medida: e.target.value })} />
+            <input type="number" placeholder="Estoque mínimo" style={{ width: 150 }} value={np.estoque_minimo} onChange={e => setNp({ ...np, estoque_minimo: e.target.value })} />
+            <button onClick={addProd}>Salvar produto</button>
+          </div>
+          <div className="cartao form">
+            <input placeholder="Nome do fornecedor" value={nf} onChange={e => setNf(e.target.value)} />
+            <button onClick={addForn}>Salvar fornecedor</button>
+          </div>
+          <p className="vazio">Produtos: {ref.produtos.map(x => x.nome).join(', ') || 'nenhum'}.<br />Fornecedores: {ref.fornecedores.map(x => x.nome).join(', ') || 'nenhum'}.</p>
+        </>
+      )}
+    </>
+  )
+}
+
+function Pacotes() {
+  const [pacotes, setPacotes] = useState([])
+  const [ref, setRef] = useState({ unidades: [], clientes: [], servicos: [], formas: [] })
+  const [vendidos, setVendidos] = useState([])
+  const [saldos, setSaldos] = useState([])
+  const [fp, setFp] = useState({ nome: '', servico_id: '', sessoes: '', preco: '', validade_dias: '' })
+  const [venda, setVenda] = useState({ cliente_id: '', pacote_id: '', unidade_id: '', forma_id: '', parcelas: 1, recebido: true })
+  const [pt, setPt] = useState({ cliente_id: '', pontos: '', motivo: '' })
+  const [msg, setMsg] = useState('')
+
+  const carregar = async () => {
+    const [pa, u, c, sv, fo, vd, sd] = await Promise.all([
+      db.from('pacotes').select('*, servicos(nome)').order('nome'),
+      db.from('unidades').select('id,nome').eq('ativa', true).order('nome'),
+      db.from('clientes').select('id,nome').order('nome'),
+      db.from('servicos').select('id,nome').eq('ativo', true).order('nome'),
+      db.from('formas_pagamento').select('id,nome').eq('ativa', true).order('nome'),
+      db.from('pacotes_cliente').select('*, clientes(nome), pacotes(nome)').gt('sessoes_restantes', 0).order('comprado_em', { ascending: false }),
+      db.from('v_saldo_fidelidade').select('*'),
+    ])
+    setPacotes(pa.data || []); setRef({ unidades: u.data || [], clientes: c.data || [], servicos: sv.data || [], formas: fo.data || [] })
+    setVendidos(vd.data || []); setSaldos(sd.data || [])
+  }
+  useEffect(() => { carregar() }, [])
+
+  const criar = async () => {
+    if (!fp.nome.trim() || !(Number(fp.sessoes) > 0) || !(Number(fp.preco) > 0)) return setMsg('Informe nome, número de sessões e preço do pacote.')
+    const { error } = await db.from('pacotes').insert({ nome: fp.nome, servico_id: fp.servico_id || null, sessoes: Number(fp.sessoes), preco: Number(fp.preco), validade_dias: Number(fp.validade_dias) || null })
+    if (error) return setMsg(FALHA)
+    setMsg(''); setFp({ nome: '', servico_id: '', sessoes: '', preco: '', validade_dias: '' }); carregar()
+  }
+  const vender = async () => {
+    const pc = pacotes.find(x => x.id === venda.pacote_id)
+    if (!pc || !venda.cliente_id || !venda.unidade_id) return setMsg('Escolha cliente, pacote e unidade.')
+    const exp = pc.validade_dias ? isoData(somaDias(new Date(), pc.validade_dias)) : null
+    const { data: pcli, error } = await db.from('pacotes_cliente').insert({ cliente_id: venda.cliente_id, pacote_id: pc.id, sessoes_restantes: pc.sessoes, expira_em: exp }).select().single()
+    if (error) return setMsg(FALHA)
+    const e2 = await lancarReceber({ unidade_id: venda.unidade_id, cliente_id: venda.cliente_id, forma_id: venda.forma_id, descricao: `Pacote ${pc.nome}`, total: Number(pc.preco), parcelas: venda.parcelas, data: isoData(new Date()), recebido: venda.recebido, pacote_cliente_id: pcli.id })
+    if (e2) return setMsg('Pacote criado, mas o lançamento financeiro falhou. Registre o valor no Financeiro.')
+    await db.from('fidelidade_movimentos').insert({ cliente_id: venda.cliente_id, pontos: Math.floor(Number(pc.preco) * PONTOS_POR_REAL), motivo: `Pacote ${pc.nome}` })
+    setMsg(''); setVenda({ ...venda, cliente_id: '', pacote_id: '' }); carregar()
+  }
+  const usar = async x => { await db.from('pacotes_cliente').update({ sessoes_restantes: x.sessoes_restantes - 1 }).eq('id', x.id); carregar() }
+  const mover = async sinal => {
+    const n = Math.abs(Number(pt.pontos))
+    if (!pt.cliente_id || !(n > 0)) return setMsg('Escolha a cliente e informe os pontos.')
+    await db.from('fidelidade_movimentos').insert({ cliente_id: pt.cliente_id, pontos: sinal * n, motivo: pt.motivo || (sinal > 0 ? 'Bônus' : 'Resgate') })
+    setMsg(''); setPt({ cliente_id: '', pontos: '', motivo: '' }); carregar()
+  }
+  const nomeCli = id => ref.clientes.find(c => c.id === id)?.nome || 'Cliente'
+
+  return (
+    <>
+      <h1>Pacotes e fidelidade</h1>
+      {msg && <p className="erro" style={{ marginBottom: 12 }}>{msg}</p>}
+      <h2>Pacotes à venda</h2>
+      <div className="cartao form">
+        <input placeholder="Nome (ex.: 5 limpezas de pele)" value={fp.nome} onChange={e => setFp({ ...fp, nome: e.target.value })} />
+        <Sel valor={fp.servico_id} onChange={v => setFp({ ...fp, servico_id: v })} vazio="Serviço" opcoes={ref.servicos.map(x => [x.id, x.nome])} />
+        <input type="number" placeholder="Sessões" style={{ width: 100 }} value={fp.sessoes} onChange={e => setFp({ ...fp, sessoes: e.target.value })} />
+        <input type="number" step="0.01" placeholder="Preço (R$)" style={{ width: 130 }} value={fp.preco} onChange={e => setFp({ ...fp, preco: e.target.value })} />
+        <input type="number" placeholder="Validade (dias)" style={{ width: 140 }} value={fp.validade_dias} onChange={e => setFp({ ...fp, validade_dias: e.target.value })} />
+        <button onClick={criar}>Criar pacote</button>
+      </div>
+      <p className="vazio">{pacotes.length === 0 ? 'Nenhum pacote criado.' : pacotes.map(x => `${x.nome} (${x.sessoes} sessões, ${brl(x.preco)})`).join(' · ')}</p>
+
+      <h2 style={{ marginTop: 28 }}>Vender pacote</h2>
+      <div className="cartao form">
+        <Sel valor={venda.cliente_id} onChange={v => setVenda({ ...venda, cliente_id: v })} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
+        <Sel valor={venda.pacote_id} onChange={v => setVenda({ ...venda, pacote_id: v })} vazio="Pacote" opcoes={pacotes.filter(x => x.ativo).map(x => [x.id, x.nome])} />
+        <Sel valor={venda.unidade_id} onChange={v => setVenda({ ...venda, unidade_id: v })} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
+        <Sel valor={venda.forma_id} onChange={v => setVenda({ ...venda, forma_id: v })} vazio="Forma de pagamento" opcoes={ref.formas.map(f => [f.id, f.nome])} />
+        <input type="number" min="1" placeholder="Parcelas" style={{ width: 100 }} value={venda.parcelas} onChange={e => setVenda({ ...venda, parcelas: e.target.value })} />
+        <label><input type="checkbox" checked={venda.recebido} onChange={e => setVenda({ ...venda, recebido: e.target.checked })} /> Primeira parcela já recebida</label>
+        <button onClick={vender}>Vender e lançar no financeiro</button>
+      </div>
+
+      <h2 style={{ marginTop: 28 }}>Pacotes em andamento</h2>
+      {vendidos.length === 0 && <p className="vazio">Nenhum pacote com sessões restantes.</p>}
+      {vendidos.map(x => (
+        <div key={x.id} className="cartao linha">
+          <div><strong>{x.clientes?.nome}</strong> · {x.pacotes?.nome}<br /><small>{x.sessoes_restantes} sessão(ões) restante(s){x.expira_em && ` · vale até ${dataBr(x.expira_em + 'T12:00')}`}</small></div>
+          <button onClick={() => usar(x)}>Usar 1 sessão</button>
+        </div>
+      ))}
+
+      <h2 style={{ marginTop: 28 }}>Fidelidade</h2>
+      <p className="vazio">Cada R$ 1 pago vale {PONTOS_POR_REAL} ponto (ao registrar o pagamento de um atendimento ou vender um pacote).</p>
+      <div className="cartao form">
+        <Sel valor={pt.cliente_id} onChange={v => setPt({ ...pt, cliente_id: v })} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
+        <input type="number" placeholder="Pontos" style={{ width: 110 }} value={pt.pontos} onChange={e => setPt({ ...pt, pontos: e.target.value })} />
+        <input placeholder="Motivo (opcional)" value={pt.motivo} onChange={e => setPt({ ...pt, motivo: e.target.value })} />
+        <button onClick={() => mover(1)}>Dar pontos</button>
+        <button className="leve" onClick={() => mover(-1)}>Resgatar pontos</button>
+      </div>
+      {saldos.length === 0 && <p className="vazio">Ainda não há pontos acumulados.</p>}
+      {[...saldos].sort((a, b) => b.pontos - a.pontos).map(x => (
+        <div key={x.cliente_id} className="cartao linha"><strong>{nomeCli(x.cliente_id)}</strong><span className="numero">{x.pontos} pts</span></div>
+      ))}
+    </>
+  )
+}
+
+function Barras({ itens }) {
+  const max = Math.max(1, ...itens.map(i => i[1]))
+  return itens.map(([rotulo, valor, texto]) => (
+    <div key={rotulo} className="barra"><span>{rotulo}</span><div className="trilho"><div style={{ width: `${valor / max * 100}%` }} /></div><strong>{texto}</strong></div>
+  ))
+}
+
+function Relatorios() {
+  const hoje = new Date()
+  const [mes, setMes] = useState(new Date(hoje.getFullYear(), hoje.getMonth(), 1))
+  const [unid, setUnid] = useState('')
+  const [unidades, setUnidades] = useState([])
+  const [atend, setAtend] = useState([])
+  const [fat, setFat] = useState([])
+  useEffect(() => { db.from('unidades').select('id,nome').order('nome').then(({ data }) => setUnidades(data || [])) }, [])
+  useEffect(() => {
+    const prox = new Date(mes.getFullYear(), mes.getMonth() + 1, 1)
+    db.from('agendamentos').select('unidade_id, servicos(nome), clientes(nome), usuarios(nome)').eq('status', 'concluido')
+      .gte('inicio', mes.toISOString()).lt('inicio', prox.toISOString()).then(({ data }) => setAtend(data || []))
+    db.from('v_faturamento_mensal').select('*').gte('mes', isoData(new Date(mes.getFullYear(), mes.getMonth() - 5, 1))).lte('mes', isoData(mes))
+      .then(({ data }) => setFat(data || []))
+  }, [mes])
+  const A = atend.filter(i => !unid || i.unidade_id === unid)
+  const ranking = f => Object.entries(A.reduce((m, i) => { const k = f(i) || 'Sem nome'; m[k] = (m[k] || 0) + 1; return m }, {})).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, v, String(v)])
+  const meses = Array.from({ length: 6 }, (_, k) => new Date(mes.getFullYear(), mes.getMonth() - 5 + k, 1))
+  const porMes = meses.map(m => {
+    const v = fat.filter(f => f.mes === isoData(m) && (!unid || f.unidade_id === unid)).reduce((t, f) => t + Number(f.total), 0)
+    return [m.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }), v, brl(v)]
+  })
+  return (
+    <>
+      <h1>Relatórios</h1>
+      <div className="cartao form">
+        <button className="leve" onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1))}>Mês anterior</button>
+        <strong style={{ textTransform: 'capitalize' }}>{mes.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}</strong>
+        <button className="leve" onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() + 1, 1))}>Próximo mês</button>
+        <Sel valor={unid} onChange={setUnid} vazio="Todas as unidades" opcoes={unidades.map(u => [u.id, u.nome])} />
+      </div>
+      <div className="resumo" style={{ marginBottom: 14 }}>
+        <div className="cartao"><small>Atendimentos concluídos</small><div className="numero">{A.length}</div></div>
+        <div className="cartao"><small>Faturamento recebido no mês</small><div className="numero">{porMes[5][2]}</div></div>
+      </div>
+      <div className="cartao"><h2>Faturamento dos últimos 6 meses</h2><Barras itens={porMes} /></div>
+      <div className="cartao"><h2>Serviços mais realizados</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.servicos?.nome)} />}</div>
+      <div className="cartao"><h2>Clientes mais frequentes</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.clientes?.nome)} />}</div>
+      <div className="cartao"><h2>Atendimentos por profissional</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.usuarios?.nome)} />}</div>
+    </>
+  )
+}
+
 const H0 = 7, H1 = 20, PX = 56
 function Grade({ dias, sel, setSel, itens, colunas, onStatus }) {
   const dia = dias[sel]
@@ -532,6 +854,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
       ...(pagto.recebido && k === 0 ? { status: 'paga', pago_em: isoData(new Date()) } : {}),
     }))
     if ((await db.from('parcelas_receber').insert(linhas)).error) return falhou()
+    if (total > 0) await db.from('fidelidade_movimentos').insert({ cliente_id: a.cliente_id, pontos: Math.floor(total * PONTOS_POR_REAL), motivo: a.servicos?.nome || 'Atendimento' })
     setPagto(null); setErro(''); carregar(); abrirProximo(a)
   }
 
@@ -882,6 +1205,9 @@ function App() {
          pagina === 'agenda' ? <Agenda usuario={usuario} prefill={prefill} limparPrefill={() => setPrefill(null)} irParaReceber={p => { setPrefillRec(p); setPagina('financeiro') }} /> :
          pagina === 'financeiro' ? <Financeiro prefill={prefillRec} limparPrefill={() => setPrefillRec(null)} /> :
          pagina === 'clientes' ? <Clientes admin={admin} /> :
+         pagina === 'compras' ? <Compras /> :
+         pagina === 'pacotes' ? <Pacotes /> :
+         pagina === 'relatorios' ? <Relatorios /> :
          pagina === 'admin' ? <><Equipe eu={usuario.id} /><Unidades /><Servicos /><Formas /></> : (
           <>
             <h1>{itens.find(([k]) => k === pagina)?.[1]}</h1>
