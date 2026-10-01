@@ -92,6 +92,14 @@ a.botao:hover { background:#F3C5D0 }
 .barra strong { text-align:right }
 .trilho { background:var(--blush); border-radius:999px; height:12px; overflow:hidden }
 .trilho div { height:100%; border-radius:999px; background:linear-gradient(90deg, #E6A6B8, #C45F7E); transition:width .5s ease }
+.fundo { position:fixed; inset:0; z-index:50; display:grid; place-items:center; background:rgba(74,42,54,.45); backdrop-filter:blur(3px); animation:entra .2s ease }
+.modal { background:#fff; border-radius:24px; padding:26px; width:calc(100% - 32px); max-width:460px; box-shadow:0 20px 60px rgba(74,42,54,.3) }
+.modal h2 { margin-bottom:6px } .modal p { margin:0 0 12px }
+button:disabled { opacity:.6; cursor:wait }
+.excluir { background:none; box-shadow:none; color:var(--suave); padding:3px 10px; border-radius:10px; font-size:.82rem }
+.excluir:hover { background:var(--blush); color:var(--rosa-esc); box-shadow:none; transform:none }
+.gatend .excluir { display:none; float:right }
+.gatend:hover .excluir { display:inline-block }
 .logo-login { width:230px; max-width:100%; align-self:center; margin-bottom:6px }
 .marca img { width:42px; height:auto; flex:none; filter:brightness(0) invert(1) }
 .marca span { display:flex; flex-direction:column; line-height:1.15 }
@@ -123,7 +131,7 @@ a.botao:hover { background:#F3C5D0 }
 
 <script type="text/babel">
 // ====== CONFIGURAÇÃO: cole aqui os dados do seu Supabase (Project Settings > API) ======
-const SUPABASE_URL = 'https://qyzyczyfucerqxhffgjm.supabase.co'        // ex.: https://abcdxyz.supabase.co
+const SUPABASE_URL = 'https://qyzyczyfucerqxhffgjm.supabase.co/'        // ex.: https://abcdxyz.supabase.co
 const SUPABASE_ANON_KEY = 'sb_publishable_govM7LdQaURB3aC3W9xz3g_coSt4HQU' // chave "anon public"
 // ========================================================================================
 
@@ -418,6 +426,57 @@ function Painel({ irParaAgenda }) {
           </div>
         ))}
       </div>
+    </>
+  )
+}
+
+const excluirRegistro = async (tipo, id, justificativa) => {
+  const { error } = await db.rpc('excluir_com_justificativa', { p_tipo: tipo, p_id: id, p_justificativa: justificativa })
+  if (!error) return null
+  if (error.code === '23503') return 'Este atendimento tem um pagamento registrado. Exclua primeiro o recebimento, na aba Financeiro.'
+  return error.message || 'Não foi possível excluir. Tente de novo.'
+}
+
+function Justificativa({ titulo, onConfirmar, onCancelar }) {
+  const [texto, setTexto] = useState('')
+  const [erro, setErro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const confirmar = async () => {
+    if (texto.trim().length < 3) return setErro('A justificativa é obrigatória.')
+    setEnviando(true)
+    const msg = await onConfirmar(texto.trim())
+    if (msg) { setErro(msg); setEnviando(false) }
+  }
+  return (
+    <div className="fundo" onClick={onCancelar}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h2>Excluir</h2>
+        <p>{titulo}</p>
+        <textarea rows="3" autoFocus placeholder="Justificativa da exclusão (obrigatória)" value={texto} onChange={e => setTexto(e.target.value)} />
+        {erro && <p className="erro" style={{ marginTop: 8 }}>{erro}</p>}
+        <div className="form" style={{ marginTop: 12 }}>
+          <button onClick={confirmar} disabled={enviando}>Excluir definitivamente</button>
+          <button className="leve" onClick={onCancelar}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Exclusoes() {
+  const [lista, setLista] = useState([])
+  useEffect(() => { db.from('exclusoes').select('*, usuarios(nome)').order('criado_em', { ascending: false }).limit(30).then(({ data }) => setLista(data || [])) }, [])
+  return (
+    <>
+      <h1 style={{ marginTop: 32 }}>Registro de exclusões</h1>
+      {lista.length === 0 && <p className="vazio">Nenhuma exclusão registrada.</p>}
+      {lista.map(x => (
+        <div key={x.id} className="cartao">
+          <strong>{x.descricao}</strong><br />
+          <small>{dataBr(x.criado_em)} às {fmtHora(x.criado_em)} · {x.usuarios?.nome || 'Usuário'}</small>
+          <p style={{ margin: '6px 0 0' }}>Justificativa: {x.justificativa}</p>
+        </div>
+      ))}
     </>
   )
 }
@@ -740,7 +799,7 @@ function Relatorios() {
 }
 
 const H0 = 7, H1 = 20, PX = 56
-function Grade({ dias, sel, setSel, itens, colunas, onStatus }) {
+function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir }) {
   const dia = dias[sel]
   const doDia = itens.filter(i => new Date(i.inicio).toDateString() === dia.toDateString())
   const horas = Array.from({ length: H1 - H0 + 1 }, (_, k) => H0 + k)
@@ -764,6 +823,7 @@ function Grade({ dias, sel, setSel, itens, colunas, onStatus }) {
                   style={{ top: min / 60 * PX, height: Math.max(dur / 60 * PX, 30), borderLeftColor: cor, background: cor + '26' }}>
                   <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
                   <small>{i.servicos?.nome} · {ROTULO[i.status]}</small>
+                  <button className="excluir" onClick={() => onExcluir(i)}>Excluir</button>
                   <select value={i.status} onChange={e => onStatus(i, e.target.value)}>
                     {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
                   </select>
@@ -786,6 +846,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   const [novo, setNovo] = useState(null)
   const [aviso, setAviso] = useState('')
   const [pagto, setPagto] = useState(null)
+  const [excl, setExcl] = useState(null)
   const [modo, setModo] = useState('semana')
   const [diaSel, setDiaSel] = useState((new Date().getDay() + 6) % 7)
   const [pagos, setPagos] = useState(new Set())
@@ -871,6 +932,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
     setPagto(null); setErro(''); carregar(); abrirProximo(a)
   }
 
+  const excluir = a => setExcl({ id: a.id, titulo: `Atendimento de ${a.clientes?.nome} em ${dataBr(a.inicio)} às ${fmtHora(a.inicio)}.` })
   const dias = [0, 1, 2, 3, 4, 5, 6].map(n => somaDias(semana, n))
   const visiveis = itens.filter(i => (!fUnidade || i.unidade_id === fUnidade) && (!fProf || i.profissional_id === fProf))
   const campo = k => v => setNovo({ ...novo, [k]: v })
@@ -879,6 +941,8 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   return (
     <>
       <h1>Agenda</h1>
+      {excl && <Justificativa titulo={excl.titulo} onCancelar={() => setExcl(null)}
+        onConfirmar={async j => { const m = await excluirRegistro('agendamento', excl.id, j); if (!m) { setExcl(null); carregar() } return m }} />}
       <div className="cartao form">
         <button className="leve" onClick={() => setSemana(somaDias(semana, -7))}>Semana anterior</button>
         <strong>{tituloSemana}</strong>
@@ -919,7 +983,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
         </div>
       )}
 
-      {modo === 'dia' && <Grade dias={dias} sel={diaSel} setSel={setDiaSel} itens={visiveis} colunas={fProf ? ref.profs.filter(p => p.id === fProf) : ref.profs} onStatus={mudarStatus} />}
+      {modo === 'dia' && <Grade dias={dias} sel={diaSel} setSel={setDiaSel} itens={visiveis} colunas={fProf ? ref.profs.filter(p => p.id === fProf) : ref.profs} onStatus={mudarStatus} onExcluir={excluir} />}
       <div className="semana" hidden={modo === 'dia'}>
         {dias.map(d => (
           <div key={d.toISOString()} className="dia">
@@ -928,6 +992,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
               <div key={i.id} className={'atend' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')} style={{ borderLeft: `5px solid ${i.unidades?.cor || '#C4677F'}` }}>
                 <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
                 <small>{i.servicos?.nome} · {i.usuarios?.nome}</small>
+                <button className="excluir" title="Excluir atendimento" onClick={() => excluir(i)}>Excluir</button>
                 <select value={i.status} onChange={e => mudarStatus(i, e.target.value)}>
                   {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
                 </select>
@@ -1039,6 +1104,7 @@ function Financeiro({ prefill, limparPrefill }) {
   const [pag, setPag] = useState([])
   const [form, setForm] = useState(null)
   const [erro, setErro] = useState('')
+  const [exclR, setExclR] = useState(null)
   const ini = isoData(mes), fim = isoData(new Date(mes.getFullYear(), mes.getMonth() + 1, 0))
 
   const carregar = async () => {
@@ -1091,7 +1157,8 @@ function Financeiro({ prefill, limparPrefill }) {
   }
   const baixar = async (tabela, i) => { await db.from(tabela).update({ status: 'paga', pago_em: hojeIso }).eq('id', i.id); carregar() }
 
-  const R = rec.filter(i => !fUnidade || i.contas_receber?.unidade_id === fUnidade)
+  const excluirReceb = i => setExclR({ id: i.conta_id, titulo: `Recebimento "${i.contas_receber?.descricao}", com todas as parcelas.` })
+    const R = rec.filter(i => !fUnidade || i.contas_receber?.unidade_id === fUnidade)
   const P = pag.filter(i => !fUnidade || i.unidade_id === fUnidade)
   const soma = l => l.reduce((t, i) => t + Number(i.valor), 0)
   const recebido = soma(R.filter(i => i.status === 'paga')), pago = soma(P.filter(i => i.status === 'paga'))
@@ -1105,6 +1172,8 @@ function Financeiro({ prefill, limparPrefill }) {
   return (
     <>
       <h1>Financeiro</h1>
+      {exclR && <Justificativa titulo={exclR.titulo} onCancelar={() => setExclR(null)}
+        onConfirmar={async j => { const m = await excluirRegistro('recebimento', exclR.id, j); if (!m) { setExclR(null); carregar() } return m }} />}
       <div className="cartao form">
         {[['resumo', 'Resumo'], ['receber', 'A receber'], ['pagar', 'A pagar']].map(([k, r]) => <button key={k} className={aba === k ? '' : 'leve'} onClick={() => setAba(k)}>{r}</button>)}
         <button className="leve" onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1))}>Mês anterior</button>
@@ -1160,7 +1229,10 @@ function Financeiro({ prefill, limparPrefill }) {
               <strong>{dataBr(i.vencimento + 'T12:00')}</strong> · {c?.clientes?.nome || 'Sem cliente'} · {c?.descricao} (parcela {i.numero})<br />
               <small>{brl(i.valor)}{taxa > 0 && ` (líquido ${brl(i.valor * (1 - taxa / 100))})`} · {c?.formas_pagamento?.nome || 'Forma não informada'} · {situacao(i)}</small>
             </div>
-            {i.status === 'pendente' && <button onClick={() => baixar('parcelas_receber', i)}>Marcar como recebida</button>}
+            <div className="form">
+              {i.status === 'pendente' && <button onClick={() => baixar('parcelas_receber', i)}>Marcar como recebida</button>}
+              <button className="excluir" title="Excluir este recebimento e todas as parcelas" onClick={() => excluirReceb(i)}>Excluir</button>
+            </div>
           </div>
         )
       }))}
@@ -1222,7 +1294,7 @@ function App() {
          pagina === 'compras' ? <Compras /> :
          pagina === 'pacotes' ? <Pacotes /> :
          pagina === 'relatorios' ? <Relatorios /> :
-         pagina === 'admin' ? <><Equipe eu={usuario.id} /><Unidades /><Servicos /><Formas /></> : (
+         pagina === 'admin' ? <><Equipe eu={usuario.id} /><Unidades /><Servicos /><Formas /><Exclusoes /></> : (
           <>
             <h1>{itens.find(([k]) => k === pagina)?.[1]}</h1>
             <p className="vazio">Esta tela será o próximo módulo a construir.</p>
