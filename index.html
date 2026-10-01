@@ -92,6 +92,12 @@ a.botao:hover { background:#F3C5D0 }
 .barra strong { text-align:right }
 .trilho { background:var(--blush); border-radius:999px; height:12px; overflow:hidden }
 .trilho div { height:100%; border-radius:999px; background:linear-gradient(90deg, #E6A6B8, #C45F7E); transition:width .5s ease }
+.zaps { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px }
+.zap { display:inline-flex; align-items:center; gap:5px; font-size:.78rem; padding:4px 11px; border-radius:999px; background:var(--blush); color:var(--rosa-esc); text-decoration:none; transition:background .2s }
+.zap:hover { background:#F3C5D0 }
+.gatend .zaps { display:none } .gatend:hover .zaps { display:flex }
+.balao { background:#FFF0F3; border:1px solid var(--blush); border-radius:18px 18px 18px 4px; padding:14px 16px; white-space:pre-wrap; max-width:440px }
+.chips-campo { display:flex; gap:6px; flex-wrap:wrap; align-items:center; margin-top:8px }
 .hub { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:18px }
 .tile { display:flex; flex-direction:column; align-items:flex-start; gap:8px; text-align:left; padding:26px; border-radius:24px;
   background:#fff; color:var(--vinho); border:1px solid #F3E4DF; box-shadow:var(--sombra); transition:transform .25s, box-shadow .25s }
@@ -173,6 +179,7 @@ const ICONES = {
   admin: <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />,
   unidades: <path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6" />,
   lixeira: <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />,
+  conversa: <path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 20l1.2-5.3A8.4 8.4 0 1 1 21 11.5z" />,
   sair: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
 }
 function Icone({ nome, tam = 24 }) {
@@ -399,11 +406,12 @@ function Clientes({ admin }) {
 function Painel({ irParaAgenda }) {
   const [retornos, setRetornos] = useState([])
   const [hoje, setHoje] = useState([])
+  const modelos = useModelos()
   useEffect(() => {
     const fimSemana = somaDias(inicioSemana(new Date()), 6)
     db.from('v_retornos').select('*').lte('retorno_em', isoData(fimSemana)).order('retorno_em').then(({ data }) => setRetornos(data || []))
     const h0 = new Date(); h0.setHours(0, 0, 0, 0)
-    db.from('agendamentos').select('*, clientes(nome), servicos(nome), usuarios(nome), unidades(nome,cor)')
+    db.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco)')
       .gte('inicio', h0.toISOString()).lt('inicio', somaDias(h0, 1).toISOString()).neq('status', 'cancelado').order('inicio')
       .then(({ data }) => setHoje(data || []))
   }, [])
@@ -433,7 +441,7 @@ function Painel({ irParaAgenda }) {
         {hoje.length === 0 && <p className="vazio">Nenhum atendimento marcado para hoje.</p>}
         {hoje.map(i => (
           <div key={i.id} className="retorno" style={{ borderLeft: `5px solid ${i.unidades?.cor || '#C4677F'}`, paddingLeft: 10 }}>
-            <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome} · {i.servicos?.nome}<br /><small>{i.usuarios?.nome} · {ROTULO[i.status]}</small>
+            <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome} · {i.servicos?.nome}<br /><small>{i.usuarios?.nome} · {ROTULO[i.status]}</small><br /><Zaps a={i} modelos={modelos} />
           </div>
         ))}
       </div>
@@ -494,6 +502,90 @@ function Exclusoes() {
 
 const PONTOS_POR_REAL = 1 // pontos de fidelidade ganhos a cada R$ 1 pago
 const FALHA = 'Não foi possível salvar. Tente de novo.'
+
+const MODELOS_PADRAO = {
+  confirmacao: 'Olá, [cliente]!\nSeu horário [dia e hora] foi confirmado!',
+  lembrete: 'Olá, [cliente]!\nNão esqueça do seu horário [dia e hora].\n\nNo endereço: [endereço]\n\nCom a profissional: [profissional]',
+}
+const TIPOS_MSG = [['confirmacao', 'Confirmação de horário'], ['lembrete', 'Lembrete de horário']]
+const CAMPOS_MSG = ['[cliente]', '[dia e hora]', '[endereço]', '[profissional]', '[serviço]']
+
+function useModelos() {
+  const [m, setM] = useState(MODELOS_PADRAO)
+  useEffect(() => {
+    db.from('mensagens_modelo').select('tipo,texto').then(({ data }) => {
+      if (data?.length) setM(x => ({ ...x, ...Object.fromEntries(data.map(d => [d.tipo, d.texto])) }))
+    })
+  }, [])
+  return m
+}
+const montarMensagem = (modelo, a) => {
+  const quando = `${new Date(a.inicio).toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit' })} às ${fmtHora(a.inicio)}`
+  return modelo
+    .replaceAll('[cliente]', a.clientes?.nome || '')
+    .replaceAll('[dia e hora]', quando)
+    .replaceAll('[endereço]', a.unidades?.endereco || a.unidades?.nome || '')
+    .replaceAll('[profissional]', a.usuarios?.nome || '')
+    .replaceAll('[serviço]', a.servicos?.nome || '')
+}
+const linkZap = (tipo, a, modelos) => {
+  const fone = String(a.clientes?.telefone || '').replace(/\D/g, '')
+  if (!fone) return null
+  return `https://wa.me/${fone.startsWith('55') && fone.length >= 12 ? fone : '55' + fone}?text=${encodeURIComponent(montarMensagem(modelos[tipo], a))}`
+}
+function Zaps({ a, modelos }) {
+  if (!['agendado', 'confirmado'].includes(a.status)) return null
+  const conf = linkZap('confirmacao', a, modelos), lemb = linkZap('lembrete', a, modelos)
+  if (!conf) return <small className="vazio">Cliente sem telefone</small>
+  return (
+    <span className="zaps">
+      <a className="zap" href={conf} target="_blank" rel="noreferrer" title="Abrir o WhatsApp com a mensagem de confirmação"><Icone nome="conversa" tam={14} />Confirmar</a>
+      <a className="zap" href={lemb} target="_blank" rel="noreferrer" title="Abrir o WhatsApp com a mensagem de lembrete"><Icone nome="conversa" tam={14} />Lembrar</a>
+    </span>
+  )
+}
+
+function Mensagens() {
+  const [textos, setTextos] = useState(MODELOS_PADRAO)
+  const [aviso, setAviso] = useState('')
+  useEffect(() => {
+    db.from('mensagens_modelo').select('tipo,texto').then(({ data }) => {
+      if (data?.length) setTextos(x => ({ ...x, ...Object.fromEntries(data.map(d => [d.tipo, d.texto])) }))
+    })
+  }, [])
+  const amanha = new Date(); amanha.setDate(amanha.getDate() + 1); amanha.setHours(14, 30, 0, 0)
+  const exemplo = { inicio: amanha.toISOString(), clientes: { nome: 'Maria' }, unidades: { endereco: 'Rua das Flores, 123 - Centro' }, usuarios: { nome: 'Greice' }, servicos: { nome: 'Design de sobrancelha' } }
+  const inserir = (tipo, campo) => {
+    const el = document.getElementById('msg-' + tipo)
+    const ini = el?.selectionStart ?? textos[tipo].length, fim = el?.selectionEnd ?? ini
+    setTextos({ ...textos, [tipo]: textos[tipo].slice(0, ini) + campo + textos[tipo].slice(fim) })
+    el?.focus()
+  }
+  const salvar = async (tipo, titulo) => {
+    const { error } = await db.from('mensagens_modelo').upsert({ tipo, titulo, texto: textos[tipo], atualizado_em: new Date().toISOString() }, { onConflict: 'tipo' })
+    setAviso(error ? 'Não foi possível salvar. Confira se a migração do SQL foi executada.' : `Mensagem de ${titulo.toLowerCase()} salva.`)
+  }
+  return (
+    <>
+      <h1>Mensagens do WhatsApp</h1>
+      <p className="vazio" style={{ marginTop: -6 }}>Esses textos abrem prontos no WhatsApp da cliente, na agenda e no painel. Você só confere e envia.</p>
+      {aviso && <p style={{ color: 'var(--rosa-esc)', fontWeight: 500 }}>{aviso}</p>}
+      {TIPOS_MSG.map(([tipo, titulo]) => (
+        <div key={tipo} className="cartao">
+          <h2>{titulo}</h2>
+          <textarea id={'msg-' + tipo} rows="6" value={textos[tipo]} onChange={e => setTextos({ ...textos, [tipo]: e.target.value })} />
+          <div className="chips-campo">
+            <small className="vazio">Inserir:</small>
+            {CAMPOS_MSG.map(c => <button key={c} className="leve" style={{ padding: '4px 12px' }} onClick={() => inserir(tipo, c)}>{c}</button>)}
+          </div>
+          <p className="vazio" style={{ margin: '10px 0 6px' }}>Prévia com um exemplo:</p>
+          <div className="balao">{montarMensagem(textos[tipo], exemplo)}</div>
+          <button style={{ marginTop: 14 }} onClick={() => salvar(tipo, titulo)}>Salvar mensagem</button>
+        </div>
+      ))}
+    </>
+  )
+}
 
 async function lancarReceber({ unidade_id, cliente_id, forma_id, descricao, total, parcelas, data, recebido, pacote_cliente_id }) {
   const n = Math.max(1, Number(parcelas) || 1)
@@ -813,6 +905,7 @@ const SECOES = [
   ['equipe', 'Equipe', 'clientes', 'Pessoas, perfis de acesso e as unidades em que cada uma atende'],
   ['unidades', 'Unidades', 'unidades', 'Endereço, cor na agenda e horário de funcionamento'],
   ['servicos', 'Serviços', 'brilho', 'Preços, durações e retorno das clientes'],
+  ['mensagens', 'Mensagens do WhatsApp', 'conversa', 'Textos de confirmação e de lembrete enviados às clientes'],
   ['pagamentos', 'Formas de pagamento', 'financeiro', 'Taxas e prazos de cada forma de receber'],
   ['exclusoes', 'Registro de exclusões', 'lixeira', 'Histórico de tudo que foi excluído, com a justificativa'],
 ]
@@ -840,6 +933,7 @@ function Administrativo({ eu }) {
       {sec === 'equipe' && <Equipe eu={eu} />}
       {sec === 'unidades' && <Unidades />}
       {sec === 'servicos' && <Servicos />}
+      {sec === 'mensagens' && <Mensagens />}
       {sec === 'pagamentos' && <Formas />}
       {sec === 'exclusoes' && <Exclusoes />}
     </div>
@@ -847,7 +941,7 @@ function Administrativo({ eu }) {
 }
 
 const H0 = 7, H1 = 20, PX = 56
-function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir }) {
+function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir, modelos }) {
   const dia = dias[sel]
   const doDia = itens.filter(i => new Date(i.inicio).toDateString() === dia.toDateString())
   const horas = Array.from({ length: H1 - H0 + 1 }, (_, k) => H0 + k)
@@ -872,6 +966,7 @@ function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir }) {
                   <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
                   <small>{i.servicos?.nome} · {ROTULO[i.status]}</small>
                   <button className="excluir" onClick={() => onExcluir(i)}>Excluir</button>
+                  <Zaps a={i} modelos={modelos} />
                   <select value={i.status} onChange={e => onStatus(i, e.target.value)}>
                     {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
                   </select>
@@ -895,6 +990,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   const [aviso, setAviso] = useState('')
   const [pagto, setPagto] = useState(null)
   const [excl, setExcl] = useState(null)
+  const modelos = useModelos()
   const [modo, setModo] = useState('semana')
   const [diaSel, setDiaSel] = useState((new Date().getDay() + 6) % 7)
   const [pagos, setPagos] = useState(new Set())
@@ -918,7 +1014,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
 
   const carregar = async () => {
     const { data } = await db.from('agendamentos')
-      .select('*, clientes(nome), servicos(nome), usuarios(nome), unidades(nome,cor)')
+      .select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco)')
       .gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio')
     setItens(data || [])
     const ids = (data || []).map(i => i.id)
@@ -1031,7 +1127,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
         </div>
       )}
 
-      {modo === 'dia' && <Grade dias={dias} sel={diaSel} setSel={setDiaSel} itens={visiveis} colunas={fProf ? ref.profs.filter(p => p.id === fProf) : ref.profs} onStatus={mudarStatus} onExcluir={excluir} />}
+      {modo === 'dia' && <Grade dias={dias} sel={diaSel} setSel={setDiaSel} itens={visiveis} colunas={fProf ? ref.profs.filter(p => p.id === fProf) : ref.profs} onStatus={mudarStatus} onExcluir={excluir} modelos={modelos} />}
       <div className="semana" hidden={modo === 'dia'}>
         {dias.map(d => (
           <div key={d.toISOString()} className="dia">
@@ -1041,6 +1137,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
                 <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
                 <small>{i.servicos?.nome} · {i.usuarios?.nome}</small>
                 <button className="excluir" title="Excluir atendimento" onClick={() => excluir(i)}>Excluir</button>
+                <Zaps a={i} modelos={modelos} />
                 <select value={i.status} onChange={e => mudarStatus(i, e.target.value)}>
                   {Object.entries(ROTULO).map(([k, r]) => <option key={k} value={k}>{r}</option>)}
                 </select>
