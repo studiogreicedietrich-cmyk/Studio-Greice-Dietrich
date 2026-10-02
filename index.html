@@ -764,6 +764,7 @@ function Pacotes() {
   const [fp, setFp] = useState({ nome: '', servico_id: '', sessoes: '', preco: '', validade_dias: '' })
   const [venda, setVenda] = useState({ cliente_id: '', pacote_id: '', unidade_id: '', forma_id: '', parcelas: 1, recebido: true })
   const [pt, setPt] = useState({ cliente_id: '', pontos: '', motivo: '' })
+  const [sec, setSec] = useState(null)
   const [msg, setMsg] = useState('')
 
   const carregar = async () => {
@@ -798,6 +799,7 @@ function Pacotes() {
     await db.from('fidelidade_movimentos').insert({ cliente_id: venda.cliente_id, pontos: Math.floor(Number(pc.preco) * PONTOS_POR_REAL), motivo: `Pacote ${pc.nome}` })
     setMsg(''); setVenda({ ...venda, cliente_id: '', pacote_id: '' }); carregar()
   }
+  const alternarPacote = async x => { await db.from('pacotes').update({ ativo: !x.ativo }).eq('id', x.id); carregar() }
   const usar = async x => { await db.from('pacotes_cliente').update({ sessoes_restantes: x.sessoes_restantes - 1 }).eq('id', x.id); carregar() }
   const mover = async sinal => {
     const n = Math.abs(Number(pt.pontos))
@@ -806,12 +808,35 @@ function Pacotes() {
     setMsg(''); setPt({ cliente_id: '', pontos: '', motivo: '' }); carregar()
   }
   const nomeCli = id => ref.clientes.find(c => c.id === id)?.nome || 'Cliente'
+  const secoes = [
+    ['catalogo', 'Pacotes à venda', 'pacotes', `${pacotes.filter(x => x.ativo).length} pacote(s) ativo(s)`],
+    ['venda', 'Vender pacote', 'financeiro', 'Venda a uma cliente e lance no financeiro'],
+    ['andamento', 'Pacotes em andamento', 'agenda', `${vendidos.length} com sessões restantes`],
+    ['fidelidade', 'Fidelidade', 'brilho', `${saldos.length} cliente(s) com pontos`],
+  ]
+  if (!sec) return (
+    <>
+      <h1>Pacotes e fidelidade</h1>
+      <p className="vazio" style={{ marginTop: -6, marginBottom: 22 }}>Escolha o que deseja fazer.</p>
+      <div className="hub">
+        {secoes.map(([k, titulo, icone, desc]) => (
+          <button key={k} className="tile" onClick={() => { setMsg(''); setSec(k) }}>
+            <span className="tile-icone"><Icone nome={icone} tam={26} /></span>
+            <span className="tile-titulo">{titulo}</span>
+            <span className="tile-desc">{desc}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
 
   return (
     <>
-      <h1>Pacotes e fidelidade</h1>
+      <div className="sec" key={sec}>
+      <button className="leve" style={{ marginBottom: 18 }} onClick={() => { setMsg(''); setSec(null) }}>← Pacotes e fidelidade</button>
       {msg && <p className="erro" style={{ marginBottom: 12 }}>{msg}</p>}
-      <h2>Pacotes à venda</h2>
+      {sec === 'catalogo' && <>
+      <h1>Pacotes à venda</h1>
       <div className="cartao form">
         <input placeholder="Nome (ex.: 5 limpezas de pele)" value={fp.nome} onChange={e => setFp({ ...fp, nome: e.target.value })} />
         <Sel valor={fp.servico_id} onChange={v => setFp({ ...fp, servico_id: v })} vazio="Serviço" opcoes={ref.servicos.map(x => [x.id, x.nome])} />
@@ -820,9 +845,20 @@ function Pacotes() {
         <input type="number" placeholder="Validade (dias)" style={{ width: 140 }} value={fp.validade_dias} onChange={e => setFp({ ...fp, validade_dias: e.target.value })} />
         <button onClick={criar}>Criar pacote</button>
       </div>
-      <p className="vazio">{pacotes.length === 0 ? 'Nenhum pacote criado.' : pacotes.map(x => `${x.nome} (${x.sessoes} sessões, ${brl(x.preco)})`).join(' · ')}</p>
+      {pacotes.length === 0 && <p className="vazio">Nenhum pacote criado. Crie o primeiro acima.</p>}
+      {pacotes.map(x => (
+        <div key={x.id} className="cartao linha" style={{ opacity: x.ativo ? 1 : .55 }}>
+          <div>
+            <strong>{x.nome}</strong><br />
+            <small>{x.servicos?.nome ? x.servicos.nome + ' · ' : ''}{x.sessoes} sessões · {brl(x.preco)}{x.validade_dias ? ` · vale ${x.validade_dias} dias` : ''}</small>
+          </div>
+          <button className="leve" onClick={() => alternarPacote(x)}>{x.ativo ? 'Desativar' : 'Reativar'}</button>
+        </div>
+      ))}
 
-      <h2 style={{ marginTop: 28 }}>Vender pacote</h2>
+      </>}
+      {sec === 'venda' && <>
+      <h1>Vender pacote</h1>
       <div className="cartao form">
         <Sel valor={venda.cliente_id} onChange={v => setVenda({ ...venda, cliente_id: v })} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
         <Sel valor={venda.pacote_id} onChange={v => setVenda({ ...venda, pacote_id: v })} vazio="Pacote" opcoes={pacotes.filter(x => x.ativo).map(x => [x.id, x.nome])} />
@@ -833,7 +869,9 @@ function Pacotes() {
         <button onClick={vender}>Vender e lançar no financeiro</button>
       </div>
 
-      <h2 style={{ marginTop: 28 }}>Pacotes em andamento</h2>
+      </>}
+      {sec === 'andamento' && <>
+      <h1>Pacotes em andamento</h1>
       {vendidos.length === 0 && <p className="vazio">Nenhum pacote com sessões restantes.</p>}
       {vendidos.map(x => (
         <div key={x.id} className="cartao linha">
@@ -842,7 +880,9 @@ function Pacotes() {
         </div>
       ))}
 
-      <h2 style={{ marginTop: 28 }}>Fidelidade</h2>
+      </>}
+      {sec === 'fidelidade' && <>
+      <h1>Fidelidade</h1>
       <p className="vazio">Cada R$ 1 pago vale {PONTOS_POR_REAL} ponto (ao registrar o pagamento de um atendimento ou vender um pacote).</p>
       <div className="cartao form">
         <Sel valor={pt.cliente_id} onChange={v => setPt({ ...pt, cliente_id: v })} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
@@ -855,6 +895,8 @@ function Pacotes() {
       {[...saldos].sort((a, b) => b.pontos - a.pontos).map(x => (
         <div key={x.cliente_id} className="cartao linha"><strong>{nomeCli(x.cliente_id)}</strong><span className="numero">{x.pontos} pts</span></div>
       ))}
+      </>}
+      </div>
     </>
   )
 }
