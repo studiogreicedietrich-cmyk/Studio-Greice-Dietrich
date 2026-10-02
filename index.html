@@ -103,6 +103,27 @@ a.botao:hover { background:#F3C5D0 }
 .campo { display:flex; flex-direction:column; align-items:stretch; gap:4px; font-size:.86rem; color:var(--suave) }
 .campo.cheio { grid-column:1 / -1 }
 @media (max-width:560px) { .campos { grid-template-columns:1fr } }
+.modal.enorme { max-width:980px; max-height:92vh; overflow-y:auto }
+.selo { font-size:.78rem; font-weight:500; padding:4px 12px; border-radius:999px }
+.selo-ativo { background:#E7F3EA; color:#2E6B45 } .selo-vencido { background:#FBE3E1; color:#9B2C22 } .selo-utilizado { background:#EFE7EA; color:#7B6068 }
+.vale { width:900px; height:600px; display:grid; grid-template-columns:1fr 250px; position:relative; overflow:hidden; border-radius:28px; color:#4A2A36; font-family:'Jost', sans-serif;
+  background:radial-gradient(620px 420px at 0% 0%, #FFF8F5 0%, rgba(255,248,245,0) 70%), linear-gradient(135deg, #FBEFEA 0%, #F8DCE3 100%) }
+.vale.plano { border-radius:0 }
+.vale::before { content:''; position:absolute; top:16px; left:16px; right:16px; bottom:16px; border:1.5px solid rgba(181,81,109,.45); border-radius:20px }
+.vale::after { content:''; position:absolute; top:24px; left:24px; right:24px; bottom:24px; border:1px solid rgba(181,81,109,.2); border-radius:14px }
+.vale-corpo { padding:54px 36px 46px 58px; display:flex; flex-direction:column; align-items:flex-start; gap:6px; position:relative; z-index:1 }
+.vale-logo { width:150px; height:auto; margin-bottom:4px }
+.vale-titulo { font:500 15px 'Jost', sans-serif; letter-spacing:.5em; text-transform:uppercase; color:#B5516D }
+.vale-valor { font-family:'Cormorant Garamond', serif; font-weight:600; line-height:1; margin:6px 0 2px }
+.vale-desc { font:italic 500 26px 'Cormorant Garamond', serif; color:#8F6B77 }
+.vale-para { font-size:20px; margin-top:14px }
+.vale-para strong { font:600 27px 'Cormorant Garamond', serif }
+.vale-msg { font:italic 500 22px/1.35 'Cormorant Garamond', serif; color:#6E4553; margin-top:10px; max-width:540px }
+.vale-cond { margin-top:auto; font-size:12.5px; color:#93707C; letter-spacing:.03em; max-width:540px }
+.vale-canhoto { border-left:2px dashed rgba(181,81,109,.5); margin:44px 0; padding:0 22px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; gap:6px; color:#B5516D; position:relative; z-index:1 }
+.vale-canhoto small { font:500 12px 'Jost', sans-serif; letter-spacing:.3em; text-transform:uppercase; color:#93707C; margin-top:14px }
+.vale-canhoto strong { font:600 26px 'Cormorant Garamond', serif; color:#4A2A36 }
+.vale-canhoto .vale-codigo { font-size:26px; letter-spacing:.06em; white-space:nowrap }
 .hub { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:18px }
 .tile { display:flex; flex-direction:column; align-items:flex-start; gap:8px; text-align:left; padding:26px; border-radius:24px;
   background:#fff; color:var(--vinho); border:1px solid #F3E4DF; box-shadow:var(--sombra); transition:transform .25s, box-shadow .25s }
@@ -163,7 +184,7 @@ const db = configurado ? supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) 
 const MENU = [
   ['painel', 'Painel'], ['agenda', 'Agenda'], ['clientes', 'Clientes'],
   ['financeiro', 'Financeiro', true], ['compras', 'Compras', true],
-  ['pacotes', 'Pacotes e fidelidade', true], ['relatorios', 'Relatórios', true],
+  ['pacotes', 'Pacotes e fidelidade', true], ['vales', 'Vale-presentes', true], ['relatorios', 'Relatórios', true],
   ['admin', 'Administrativo', true],
 ]
 
@@ -185,6 +206,7 @@ const ICONES = {
   unidades: <path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6" />,
   lixeira: <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />,
   conversa: <path d="M21 11.5a8.4 8.4 0 0 1-12.4 7.4L3 20l1.2-5.3A8.4 8.4 0 1 1 21 11.5z" />,
+  vale: <><path d="M3 9a3 3 0 0 1 0 6v2a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-2a3 3 0 0 1 0-6V7a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1z" /><path d="M14 6v12" strokeDasharray="2 3" /></>,
   sair: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
 }
 function Icone({ nome, tam = 24 }) {
@@ -414,6 +436,12 @@ function Clientes({ admin }) {
 function Painel({ irParaAgenda }) {
   const [retornos, setRetornos] = useState([])
   const [hoje, setHoje] = useState([])
+  const [vales, setVales] = useState([])
+  useEffect(() => {
+    db.from('vales').select('id,codigo,para_nome,saldo,expira_em').gt('saldo', 0)
+      .gte('expira_em', isoData(new Date())).lte('expira_em', isoData(somaDias(new Date(), 30))).order('expira_em')
+      .then(({ data }) => setVales(data || []))
+  }, [])
   const modelos = useModelos()
   useEffect(() => {
     const fimSemana = somaDias(inicioSemana(new Date()), 6)
@@ -444,6 +472,17 @@ function Painel({ irParaAgenda }) {
           </div>
         ))}
       </div>
+      {vales.length > 0 && (
+        <div className="cartao">
+          <h2>Vale-presentes a vencer</h2>
+          {vales.map(v => (
+            <div key={v.id} className="retorno">
+              <strong>{v.codigo}</strong> · {v.para_nome}<br />
+              <small>Saldo {brl(v.saldo)} · vence em {dataBr(v.expira_em + 'T12:00')} ({diasPara(v.expira_em)} dia{diasPara(v.expira_em) === 1 ? '' : 's'})</small>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="cartao">
         <h2>Atendimentos de hoje</h2>
         {hoje.length === 0 && <p className="vazio">Nenhum atendimento marcado para hoje.</p>}
@@ -999,6 +1038,326 @@ function Administrativo({ eu }) {
       {sec === 'mensagens' && <Mensagens />}
       {sec === 'pagamentos' && <Formas />}
       {sec === 'exclusoes' && <Exclusoes />}
+    </div>
+  )
+}
+
+const LIB_H2C = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js'
+const LIB_PDF = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'
+const cacheLib = {}
+const carregarLib = src => cacheLib[src] || (cacheLib[src] = new Promise((ok, falha) => {
+  const el = document.createElement('script')
+  el.src = src; el.onload = ok; el.onerror = () => { delete cacheLib[src]; falha() }
+  document.head.appendChild(el)
+}))
+async function gerarPdf(idCaptura) {
+  await Promise.all([carregarLib(LIB_H2C), carregarLib(LIB_PDF)])
+  if (document.fonts?.ready) await document.fonts.ready
+  const canvas = await window.html2canvas(document.getElementById(idCaptura), { scale: 2, backgroundColor: '#FBEFEA', useCORS: true })
+  const pdf = new window.jspdf.jsPDF({ orientation: 'landscape', unit: 'px', format: [900, 600], hotfixes: ['px_scaling'] })
+  pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', 0, 0, 900, 600)
+  return pdf.output('blob')
+}
+
+const novoCodigo = () => 'GD-' + Array.from({ length: 6 }, () => 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 31)]).join('')
+const diasPara = iso => Math.round((new Date(iso + 'T12:00') - new Date(isoData(new Date()) + 'T12:00')) / 86400000)
+const situacaoVale = v => Number(v.saldo) <= 0 ? 'utilizado' : v.expira_em < isoData(new Date()) ? 'vencido' : 'ativo'
+const ROTULO_VALE = { ativo: 'Ativo', vencido: 'Vencido', utilizado: 'Utilizado' }
+const textoValidade = v => {
+  const d = diasPara(v.expira_em), data = dataBr(v.expira_em + 'T12:00')
+  if (situacaoVale(v) === 'utilizado') return `utilizado${v.utilizado_em ? ' em ' + dataBr(v.utilizado_em) : ''}`
+  return d >= 0 ? `vence em ${data}${d <= 30 ? ` (${d} dia${d === 1 ? '' : 's'})` : ''}` : `venceu em ${data} (há ${-d} dia${d === -1 ? '' : 's'})`
+}
+
+function useEscala(larg, modal) {
+  const calc = () => Math.max(.3, Math.min(1, (window.innerWidth - (modal ? 120 : window.innerWidth > 760 ? 190 : 36)) / larg))
+  const [k, setK] = useState(calc)
+  useEffect(() => { const f = () => setK(calc()); window.addEventListener('resize', f); return () => window.removeEventListener('resize', f) }, [])
+  return k
+}
+
+function ValeArte({ vale, id, plano }) {
+  const txt = brl(vale.valor || 0)
+  return (
+    <div className={'vale' + (plano ? ' plano' : '')} id={id}>
+      <div className="vale-corpo">
+        <img className="vale-logo" src={LOGO} alt="" />
+        <div className="vale-titulo">Vale-presente</div>
+        <div className="vale-valor" style={{ fontSize: txt.length > 11 ? 78 : 96 }}>{txt}</div>
+        {vale.descricao && <div className="vale-desc">{vale.descricao}</div>}
+        <div className="vale-para">Para <strong>{vale.para_nome || '—'}</strong>{vale.de_nome && <> · De <strong>{vale.de_nome}</strong></>}</div>
+        {vale.mensagem && <div className="vale-msg">“{vale.mensagem}”</div>}
+        <div className="vale-cond">{vale.condicoes}</div>
+      </div>
+      <div className="vale-canhoto">
+        <Icone nome="brilho" tam={34} />
+        <small>Código</small><strong className="vale-codigo">{vale.codigo}</strong>
+        <small>Válido até</small><strong>{vale.expira_em ? dataBr(vale.expira_em + 'T12:00') : '—'}</strong>
+      </div>
+    </div>
+  )
+}
+
+function PreviaVale({ vale, idCaptura, modal }) {
+  const k = useEscala(900, modal)
+  return (
+    <>
+      <div style={{ width: 900 * k, height: 600 * k }}>
+        <div style={{ width: 900, transform: `scale(${k})`, transformOrigin: 'top left' }}><ValeArte vale={vale} /></div>
+      </div>
+      {idCaptura && <div style={{ position: 'fixed', left: -10000, top: 0 }}><ValeArte vale={vale} id={idCaptura} plano /></div>}
+    </>
+  )
+}
+
+function AcoesVale({ vale, idCaptura, telefone }) {
+  const [ocupado, setOcupado] = useState(false)
+  const [aviso, setAviso] = useState('')
+  const texto = `Olá! Segue o seu vale-presente do Greice Dietrich Stúdio, no valor de ${brl(vale.valor)}.\nCódigo: ${vale.codigo}\nVálido até ${dataBr(vale.expira_em + 'T12:00')}.`
+  const baixar = arq => {
+    const url = URL.createObjectURL(arq), a = document.createElement('a')
+    a.href = url; a.download = arq.name; a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+  const agir = async modo => {
+    setOcupado(true); setAviso('')
+    try {
+      const arq = new File([await gerarPdf(idCaptura)], `vale-${vale.codigo}.pdf`, { type: 'application/pdf' })
+      if (modo === 'baixar') return baixar(arq)
+      if (navigator.canShare?.({ files: [arq] })) { await navigator.share({ files: [arq], text: texto }); return }
+      baixar(arq)
+      const fone = String(telefone || '').replace(/\D/g, '')
+      window.open(`https://wa.me/${fone ? (fone.startsWith('55') && fone.length >= 12 ? fone : '55' + fone) : ''}?text=${encodeURIComponent(texto)}`, '_blank')
+      setAviso('O PDF foi baixado. Anexe-o na conversa do WhatsApp que abriu.')
+    } catch (e) {
+      if (e?.name !== 'AbortError') setAviso('Não foi possível gerar o PDF. Verifique a conexão com a internet e tente de novo.')
+    } finally { setOcupado(false) }
+  }
+  return (
+    <div className="form">
+      <button onClick={() => agir('baixar')} disabled={ocupado}>{ocupado ? 'Gerando...' : 'Baixar PDF'}</button>
+      <button className="leve" onClick={() => agir('enviar')} disabled={ocupado}>Enviar pelo WhatsApp</button>
+      {aviso && <p style={{ width: '100%', margin: 0, color: 'var(--rosa-esc)' }}>{aviso}</p>}
+    </div>
+  )
+}
+
+function GerarVale() {
+  const novo = () => ({ cliente_id: '', de_nome: '', para_nome: '', valor: '', descricao: '', mensagem: '', condicoes: 'Apresente este vale no momento do atendimento.',
+    expira_em: isoData(somaDias(new Date(), 180)), lancar: true, unidade_id: '', forma_id: '', parcelas: 1, recebido: true })
+  const [f, setF] = useState(novo)
+  const [criado, setCriado] = useState(null)
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [ref, setRef] = useState({ clientes: [], unidades: [], formas: [] })
+  useEffect(() => {
+    Promise.all([
+      db.from('clientes').select('id,nome,telefone').order('nome'),
+      db.from('unidades').select('id,nome').eq('ativa', true).order('nome'),
+      db.from('formas_pagamento').select('id,nome').eq('ativa', true).order('nome'),
+    ]).then(([c, u, fo]) => setRef({ clientes: c.data || [], unidades: u.data || [], formas: fo.data || [] }))
+  }, [])
+  const campo = k => e => setF({ ...f, [k]: e.target.value })
+  const escolherCliente = id => setF({ ...f, cliente_id: id, de_nome: f.de_nome || ref.clientes.find(x => x.id === id)?.nome || '' })
+
+  const salvar = async () => {
+    const valor = Number(f.valor)
+    if (!f.para_nome.trim() || !(valor > 0) || !f.expira_em) return setErro('Informe para quem é o vale, o valor e a validade.')
+    if (f.lancar && !f.unidade_id) return setErro('Escolha a unidade para lançar a venda no financeiro.')
+    setSalvando(true); setErro('')
+    let vale = null
+    for (let t = 0; t < 5 && !vale; t++) {
+      const { data, error } = await db.from('vales').insert({
+        codigo: novoCodigo(), cliente_id: f.cliente_id || null, de_nome: f.de_nome.trim() || null, para_nome: f.para_nome.trim(), valor, saldo: valor,
+        descricao: f.descricao.trim() || null, mensagem: f.mensagem.trim() || null, condicoes: f.condicoes.trim() || null, expira_em: f.expira_em,
+      }).select().single()
+      if (!error) vale = data
+      else if (error.code !== '23505') { setErro(FALHA); setSalvando(false); return }
+    }
+    if (!vale) { setErro(FALHA); setSalvando(false); return }
+    if (f.lancar) {
+      const e2 = await lancarReceber({ unidade_id: f.unidade_id, cliente_id: f.cliente_id, forma_id: f.forma_id, descricao: `Vale-presente ${vale.codigo}`, total: valor, parcelas: f.parcelas, data: isoData(new Date()), recebido: f.recebido })
+      if (e2) setErro('O vale foi criado, mas o lançamento no financeiro falhou. Registre o valor em Financeiro.')
+    }
+    setCriado({ ...vale, clientes: ref.clientes.find(c => c.id === vale.cliente_id) || null })
+    setSalvando(false)
+  }
+
+  if (criado) return (
+    <>
+      <h1>Vale gerado</h1>
+      {erro && <p className="erro" style={{ marginBottom: 12 }}>{erro}</p>}
+      <PreviaVale vale={criado} idCaptura="vale-pdf-novo" />
+      <div style={{ margin: '18px 0' }}><AcoesVale vale={criado} idCaptura="vale-pdf-novo" telefone={criado.clientes?.telefone} /></div>
+      <button className="leve" onClick={() => { setCriado(null); setF(novo()); setErro('') }}>Gerar outro vale</button>
+    </>
+  )
+  return (
+    <>
+      <h1>Gerar vale-presente</h1>
+      <div className="cartao">
+        <div className="campos">
+          <label className="campo">Cliente que está comprando<Sel valor={f.cliente_id} onChange={escolherCliente} vazio="Opcional" opcoes={ref.clientes.map(c => [c.id, c.nome])} /></label>
+          <label className="campo">Valor (R$)<input type="number" step="0.01" value={f.valor} onChange={campo('valor')} /></label>
+          <label className="campo">De<input value={f.de_nome} onChange={campo('de_nome')} /></label>
+          <label className="campo">Para<input value={f.para_nome} onChange={campo('para_nome')} /></label>
+          <label className="campo cheio">O que o vale cobre (opcional)<input placeholder="Ex.: 1 limpeza de pele completa" value={f.descricao} onChange={campo('descricao')} /></label>
+          <label className="campo cheio">Mensagem (opcional)<textarea rows="2" value={f.mensagem} onChange={campo('mensagem')} /></label>
+          <label className="campo">Válido até<input type="date" value={f.expira_em} onChange={campo('expira_em')} /></label>
+          <label className="campo">Condições<input value={f.condicoes} onChange={campo('condicoes')} /></label>
+        </div>
+        <label style={{ marginTop: 14 }}><input type="checkbox" checked={f.lancar} onChange={e => setF({ ...f, lancar: e.target.checked })} /> Lançar a venda no financeiro</label>
+        {f.lancar && (
+          <div className="campos" style={{ marginTop: 10 }}>
+            <label className="campo">Unidade<Sel valor={f.unidade_id} onChange={v => setF({ ...f, unidade_id: v })} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} /></label>
+            <label className="campo">Forma de pagamento<Sel valor={f.forma_id} onChange={v => setF({ ...f, forma_id: v })} vazio="Não informada" opcoes={ref.formas.map(x => [x.id, x.nome])} /></label>
+            <label className="campo">Parcelas<input type="number" min="1" value={f.parcelas} onChange={campo('parcelas')} /></label>
+            <label className="campo" style={{ justifyContent: 'flex-end' }}><span><input type="checkbox" checked={f.recebido} onChange={e => setF({ ...f, recebido: e.target.checked })} /> Primeira parcela já recebida</span></label>
+          </div>
+        )}
+        {erro && <p className="erro" style={{ marginTop: 10 }}>{erro}</p>}
+        <button style={{ marginTop: 16 }} onClick={salvar} disabled={salvando}>{salvando ? 'Gerando...' : 'Gerar vale'}</button>
+      </div>
+      <h2>Prévia</h2>
+      <PreviaVale vale={{ ...f, valor: Number(f.valor) || 0, codigo: 'GD-XXXXXX' }} />
+    </>
+  )
+}
+
+function BaixaVale({ vale, unidades, onFechar, onFeito }) {
+  const vencido = situacaoVale(vale) === 'vencido'
+  const [valor, setValor] = useState(String(vale.saldo))
+  const [unidade, setUnidade] = useState('')
+  const [obs, setObs] = useState('')
+  const [honrar, setHonrar] = useState(false)
+  const [erro, setErro] = useState('')
+  const [env, setEnv] = useState(false)
+  const salvar = async () => {
+    setEnv(true)
+    const { error } = await db.rpc('dar_baixa_vale', { p_id: vale.id, p_valor: Number(valor), p_unidade: unidade || null, p_obs: obs, p_honrar_vencido: honrar })
+    if (error) { setErro(error.message || FALHA); setEnv(false); return }
+    onFeito()
+  }
+  return (
+    <div className="fundo" onClick={onFechar}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
+        <h2>Dar baixa no vale {vale.codigo}</h2>
+        <p>Para {vale.para_nome}. Saldo disponível: <strong>{brl(vale.saldo)}</strong>.</p>
+        <div className="campos" style={{ gridTemplateColumns: '1fr' }}>
+          <label className="campo">Valor utilizado (R$)<input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} /></label>
+          <label className="campo">Unidade onde foi usado<Sel valor={unidade} onChange={setUnidade} vazio="Não informada" opcoes={unidades.map(u => [u.id, u.nome])} /></label>
+          <label className="campo">Observação (opcional)<input value={obs} onChange={e => setObs(e.target.value)} /></label>
+          {vencido && <label><input type="checkbox" checked={honrar} onChange={e => setHonrar(e.target.checked)} /> Este vale está vencido. Honrar mesmo assim</label>}
+        </div>
+        {erro && <p className="erro" style={{ marginTop: 10 }}>{erro}</p>}
+        <div className="form" style={{ marginTop: 16 }}>
+          <button onClick={salvar} disabled={env}>Confirmar baixa</button>
+          <button className="leve" onClick={onFechar}>Cancelar</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function VerVale({ vale, onFechar }) {
+  const [baixas, setBaixas] = useState([])
+  useEffect(() => { db.from('vale_baixas').select('*, unidades(nome)').eq('vale_id', vale.id).order('criado_em', { ascending: false }).then(({ data }) => setBaixas(data || [])) }, [vale.id])
+  return (
+    <div className="fundo" onClick={onFechar}>
+      <div className="modal enorme" onClick={e => e.stopPropagation()}>
+        <PreviaVale vale={vale} idCaptura="vale-pdf-ver" modal />
+        <div style={{ margin: '16px 0' }}><AcoesVale vale={vale} idCaptura="vale-pdf-ver" telefone={vale.clientes?.telefone} /></div>
+        <h2>Histórico de baixas</h2>
+        {baixas.length === 0 && <p className="vazio">Nenhuma baixa registrada neste vale.</p>}
+        {baixas.map(b => (
+          <div key={b.id} className="linha retorno">
+            <span><strong>{brl(b.valor)}</strong> · {dataBr(b.criado_em)} às {fmtHora(b.criado_em)}{b.unidades?.nome ? ` · ${b.unidades.nome}` : ''}</span>
+            {b.observacao && <small className="vazio">{b.observacao}</small>}
+          </div>
+        ))}
+        <button className="leve" style={{ marginTop: 14 }} onClick={onFechar}>Fechar</button>
+      </div>
+    </div>
+  )
+}
+
+function ValesEmitidos() {
+  const [lista, setLista] = useState([])
+  const [unidades, setUnidades] = useState([])
+  const [filtro, setFiltro] = useState('ativos')
+  const [busca, setBusca] = useState('')
+  const [baixa, setBaixa] = useState(null)
+  const [ver, setVer] = useState(null)
+  const carregar = async () => {
+    const { data } = await db.from('vales').select('*, clientes(nome, telefone)').order('criado_em', { ascending: false }).limit(300)
+    setLista(data || [])
+  }
+  useEffect(() => { carregar(); db.from('unidades').select('id,nome').order('nome').then(({ data }) => setUnidades(data || [])) }, [])
+  const vistos = lista.filter(v => {
+    const sit = situacaoVale(v)
+    const ok = filtro === 'todos' || (filtro === 'ativos' && sit === 'ativo') || (filtro === 'vencer' && sit === 'ativo' && diasPara(v.expira_em) <= 30)
+      || (filtro === 'vencidos' && sit === 'vencido') || (filtro === 'utilizados' && sit === 'utilizado')
+    const t = busca.toLowerCase()
+    return ok && (!t || [v.codigo, v.para_nome, v.de_nome, v.clientes?.nome].some(x => (x || '').toLowerCase().includes(t)))
+  })
+  return (
+    <>
+      <h1>Vales emitidos</h1>
+      {baixa && <BaixaVale vale={baixa} unidades={unidades} onFechar={() => setBaixa(null)} onFeito={() => { setBaixa(null); carregar() }} />}
+      {ver && <VerVale vale={ver} onFechar={() => setVer(null)} />}
+      <div className="chips">
+        {[['ativos', 'Ativos'], ['vencer', 'A vencer (30 dias)'], ['vencidos', 'Vencidos'], ['utilizados', 'Utilizados'], ['todos', 'Todos']].map(([k, r]) => (
+          <button key={k} className={filtro === k ? '' : 'leve'} onClick={() => setFiltro(k)}>{r}</button>
+        ))}
+      </div>
+      <input placeholder="Buscar por código ou nome" value={busca} onChange={e => setBusca(e.target.value)} style={{ width: '100%', marginBottom: 14 }} />
+      {vistos.length === 0 && <p className="vazio">Nenhum vale nesta lista.</p>}
+      {vistos.map(v => {
+        const sit = situacaoVale(v)
+        return (
+          <div key={v.id} className="cartao linha" style={{ borderLeft: `6px solid ${sit === 'ativo' ? '#D4708A' : sit === 'vencido' ? '#C0463C' : '#CDBBC1'}` }}>
+            <div>
+              <strong>{v.codigo}</strong> · {v.para_nome}{v.de_nome ? ` (de ${v.de_nome})` : ''}<br />
+              <small>{brl(v.valor)} · saldo {brl(v.saldo)} · {textoValidade(v)}</small>
+            </div>
+            <div className="form">
+              <span className={'selo selo-' + sit}>{ROTULO_VALE[sit]}</span>
+              <button className="leve" onClick={() => setVer(v)}>Ver / PDF</button>
+              {Number(v.saldo) > 0 && <button onClick={() => setBaixa(v)}>Dar baixa</button>}
+            </div>
+          </div>
+        )
+      })}
+    </>
+  )
+}
+
+function Vales() {
+  const [sec, setSec] = useState(null)
+  const secoes = [
+    ['gerar', 'Gerar vale-presente', 'vale', 'Crie o vale, veja a arte e gere o PDF para enviar'],
+    ['emitidos', 'Vales emitidos', 'agenda', 'Acompanhe a validade, o saldo e dê baixa'],
+  ]
+  if (!sec) return (
+    <>
+      <h1>Vale-presentes</h1>
+      <p className="vazio" style={{ marginTop: -6, marginBottom: 22 }}>Escolha o que deseja fazer.</p>
+      <div className="hub">
+        {secoes.map(([k, titulo, icone, desc]) => (
+          <button key={k} className="tile" onClick={() => setSec(k)}>
+            <span className="tile-icone"><Icone nome={icone} tam={26} /></span>
+            <span className="tile-titulo">{titulo}</span>
+            <span className="tile-desc">{desc}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  )
+  return (
+    <div className="sec" key={sec}>
+      <button className="leve" style={{ marginBottom: 18 }} onClick={() => setSec(null)}>← Vale-presentes</button>
+      {sec === 'gerar' && <GerarVale />}
+      {sec === 'emitidos' && <ValesEmitidos />}
     </div>
   )
 }
@@ -1570,6 +1929,7 @@ function App() {
          pagina === 'clientes' ? <Clientes admin={admin} /> :
          pagina === 'compras' ? <Compras /> :
          pagina === 'pacotes' ? <Pacotes /> :
+         pagina === 'vales' ? <Vales /> :
          pagina === 'relatorios' ? <Relatorios /> :
          pagina === 'admin' ? <Administrativo eu={usuario.id} /> : (
           <>
