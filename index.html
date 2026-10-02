@@ -211,7 +211,7 @@ function Login() {
   )
 }
 
-const vazioUnidade = { nome: '', endereco: '', telefone: '', cor: '#C4677F' }
+const vazioUnidade = { nome: '', endereco: '', telefone: '', cor: '#C4677F', percentual_repasse: '' }
 
 function Unidades() {
   const [lista, setLista] = useState([])
@@ -223,7 +223,7 @@ function Unidades() {
   useEffect(() => { carregar() }, [])
   const salvar = async () => {
     if (!form.nome.trim()) return
-    await db.from('unidades').insert(form)
+    await db.from('unidades').insert({ ...form, percentual_repasse: Math.min(100, Math.max(0, Number(form.percentual_repasse) || 0)) })
     setForm(vazioUnidade); carregar()
   }
   const salvarHorario = async (u, k, v) => {
@@ -242,6 +242,7 @@ function Unidades() {
         <input placeholder="Nome da unidade" value={form.nome} onChange={campo('nome')} />
         <input placeholder="Endereço" value={form.endereco} onChange={campo('endereco')} />
         <input placeholder="Telefone / WhatsApp" value={form.telefone} onChange={campo('telefone')} />
+        <input type="number" step="0.01" min="0" max="100" placeholder="Repasse à unidade (%)" style={{ width: 190 }} value={form.percentual_repasse} onChange={campo('percentual_repasse')} />
         <label>Cor na agenda <input type="color" value={form.cor} onChange={campo('cor')} /></label>
         <button onClick={salvar}>Salvar unidade</button>
       </div>
@@ -250,7 +251,9 @@ function Unidades() {
         <div key={u.id} className="cartao linha" style={{ borderLeft: `6px solid ${u.cor}` }}>
           <div><strong>{u.nome}</strong><br /><small>{u.endereco} {u.telefone}</small><br />
             <small>Funciona das <input type="time" style={{ padding: 4 }} defaultValue={u.horario_funcionamento?.abre || ''} onBlur={e => salvarHorario(u, 'abre', e.target.value)} /> às{' '}
-              <input type="time" style={{ padding: 4 }} defaultValue={u.horario_funcionamento?.fecha || ''} onBlur={e => salvarHorario(u, 'fecha', e.target.value)} /></small></div>
+              <input type="time" style={{ padding: 4 }} defaultValue={u.horario_funcionamento?.fecha || ''} onBlur={e => salvarHorario(u, 'fecha', e.target.value)} /></small><br />
+            <small>Repasse à unidade <input type="number" step="0.01" min="0" max="100" style={{ width: 80, padding: 4 }} defaultValue={u.percentual_repasse || ''} placeholder="0"
+              onBlur={e => db.from('unidades').update({ percentual_repasse: Math.min(100, Math.max(0, Number(e.target.value) || 0)) }).eq('id', u.id)} /> % do valor de cada atendimento</small></div>
           <button className="leve" onClick={() => alternar(u)}>{u.ativa ? 'Desativar' : 'Reativar'}</button>
         </div>
       ))}
@@ -881,10 +884,12 @@ function Relatorios() {
   const A = atend.filter(i => !unid || i.unidade_id === unid)
   const ranking = f => Object.entries(A.reduce((m, i) => { const k = f(i) || 'Sem nome'; m[k] = (m[k] || 0) + 1; return m }, {})).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, v, String(v)])
   const meses = Array.from({ length: 6 }, (_, k) => new Date(mes.getFullYear(), mes.getMonth() - 5 + k, 1))
-  const porMes = meses.map(m => {
-    const v = fat.filter(f => f.mes === isoData(m) && (!unid || f.unidade_id === unid)).reduce((t, f) => t + Number(f.total), 0)
-    return [m.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }), v, brl(v)]
-  })
+  const doMes = m => fat.filter(f => f.mes === isoData(m) && (!unid || f.unidade_id === unid))
+  const rotuloMes = m => m.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
+  const porMes = meses.map(m => { const v = doMes(m).reduce((t, f) => t + Number(f.total), 0); return [rotuloMes(m), v, brl(v)] })
+  const liqMes = meses.map(m => { const v = doMes(m).reduce((t, f) => t + Number(f.total) - Number(f.repasse || 0), 0); return [rotuloMes(m), v, brl(v)] })
+  const mesAtual = doMes(mes)
+  const brutoMes = mesAtual.reduce((t, f) => t + Number(f.total), 0), repasseMes = mesAtual.reduce((t, f) => t + Number(f.repasse || 0), 0)
   return (
     <>
       <h1>Relatórios</h1>
@@ -896,9 +901,20 @@ function Relatorios() {
       </div>
       <div className="resumo" style={{ marginBottom: 14 }}>
         <div className="cartao"><small>Atendimentos concluídos</small><div className="numero">{A.length}</div></div>
-        <div className="cartao"><small>Faturamento recebido no mês</small><div className="numero">{porMes[5][2]}</div></div>
+        <div className="cartao"><small>Recebido no mês</small><div className="numero">{brl(brutoMes)}</div></div>
+        <div className="cartao"><small>Repasse às unidades</small><div className="numero">−{brl(repasseMes)}</div></div>
+        <div className="cartao"><small>Líquido para você</small><div className="numero">{brl(brutoMes - repasseMes)}</div></div>
       </div>
-      <div className="cartao"><h2>Faturamento dos últimos 6 meses</h2><Barras itens={porMes} /></div>
+      <div className="cartao"><h2>Recebido nos últimos 6 meses</h2><Barras itens={porMes} /></div>
+      <div className="cartao"><h2>Líquido para você nos últimos 6 meses</h2><Barras itens={liqMes} /></div>
+      <div className="cartao"><h2>Repasse por unidade no mês</h2>
+        {mesAtual.length === 0 ? <p className="vazio">Sem recebimentos neste mês.</p> : mesAtual.map(f => (
+          <div key={f.unidade_id} className="linha retorno">
+            <strong>{unidades.find(u => u.id === f.unidade_id)?.nome || 'Unidade'}</strong>
+            <small>Recebido {brl(f.total)} · Repasse −{brl(f.repasse || 0)} · Líquido {brl(Number(f.total) - Number(f.repasse || 0))}</small>
+          </div>
+        ))}
+      </div>
       <div className="cartao"><h2>Serviços mais realizados</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.servicos?.nome)} />}</div>
       <div className="cartao"><h2>Clientes mais frequentes</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.clientes?.nome)} />}</div>
       <div className="cartao"><h2>Atendimentos por profissional</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.usuarios?.nome)} />}</div>
@@ -1248,7 +1264,7 @@ function EditarLancamento({ tipo, item, listas, onSalvo, onFechar }) {
   const c = item.contas_receber
   const base = { valor: item.valor, vencimento: item.vencimento, status: item.status, pago_em: item.pago_em || isoData(new Date()) }
   const [f, setF] = useState(tipo === 'receber'
-    ? { ...base, descricao: c?.descricao || '', unidade_id: c?.unidade_id || '', cliente_id: c?.cliente_id || '', forma_id: c?.forma_pagamento_id || '' }
+    ? { ...base, descricao: c?.descricao || '', unidade_id: c?.unidade_id || '', cliente_id: c?.cliente_id || '', forma_id: c?.forma_pagamento_id || '', repasse: c?.repasse_percentual ?? 0 }
     : { ...base, descricao: item.descricao, unidade_id: item.unidade_id })
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -1262,7 +1278,7 @@ function EditarLancamento({ tipo, item, listas, onSalvo, onFechar }) {
     const parcela = { valor, vencimento: f.vencimento, status: f.status, pago_em: f.status === 'paga' ? f.pago_em : null }
     let falhou
     if (tipo === 'receber') {
-      falhou = (await db.from('contas_receber').update({ descricao: f.descricao.trim(), unidade_id: f.unidade_id, cliente_id: f.cliente_id || null, forma_pagamento_id: f.forma_id || null }).eq('id', item.conta_id)).error
+      falhou = (await db.from('contas_receber').update({ descricao: f.descricao.trim(), unidade_id: f.unidade_id, cliente_id: f.cliente_id || null, forma_pagamento_id: f.forma_id || null, repasse_percentual: Math.min(100, Math.max(0, Number(f.repasse) || 0)) }).eq('id', item.conta_id)).error
         || (await db.from('parcelas_receber').update(parcela).eq('id', item.id)).error
       if (!falhou) {
         const { data: ps } = await db.from('parcelas_receber').select('valor, status').eq('conta_id', item.conta_id)
@@ -1280,12 +1296,13 @@ function EditarLancamento({ tipo, item, listas, onSalvo, onFechar }) {
     <div className="fundo" onClick={onFechar}>
       <div className="modal largo" onClick={e => e.stopPropagation()}>
         <h2>{tipo === 'receber' ? 'Editar recebimento' : 'Editar despesa'}</h2>
-        {tipo === 'receber' && <p className="vazio">Descrição, unidade, cliente e forma de pagamento valem para todas as parcelas deste recebimento. Valor, vencimento e situação valem só para esta parcela ({item.numero}).</p>}
+        {tipo === 'receber' && <p className="vazio">Descrição, unidade, cliente, forma de pagamento e repasse valem para todas as parcelas deste recebimento. Valor, vencimento e situação valem só para esta parcela ({item.numero}).</p>}
         <div className="campos">
           <label className="campo cheio">Descrição<input value={f.descricao} onChange={e => campo('descricao')(e.target.value)} /></label>
           <label className="campo">Unidade<Sel valor={f.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={listas.unidades.map(u => [u.id, u.nome])} /></label>
           {tipo === 'receber' && <label className="campo">Cliente<Sel valor={f.cliente_id} onChange={campo('cliente_id')} vazio="Sem cliente" opcoes={listas.clientes.map(x => [x.id, x.nome])} /></label>}
           {tipo === 'receber' && <label className="campo">Forma de pagamento<Sel valor={f.forma_id} onChange={campo('forma_id')} vazio="Não informada" opcoes={listas.formas.map(x => [x.id, x.nome])} /></label>}
+          {tipo === 'receber' && <label className="campo">Repasse à unidade (%)<input type="number" step="0.01" value={f.repasse} onChange={e => campo('repasse')(e.target.value)} /></label>}
           <label className="campo">Valor (R$)<input type="number" step="0.01" value={f.valor} onChange={e => campo('valor')(e.target.value)} /></label>
           <label className="campo">Vencimento<input type="date" value={f.vencimento} onChange={e => campo('vencimento')(e.target.value)} /></label>
           <label className="campo">Situação<Sel valor={f.status} onChange={campo('status')} vazio="Situação" opcoes={[['pendente', 'Pendente'], ['paga', tipo === 'receber' ? 'Recebida' : 'Paga']]} /></label>
@@ -1318,7 +1335,7 @@ function Financeiro({ prefill, limparPrefill }) {
   const carregar = async () => {
     const filtro = `and(status.eq.pendente,vencimento.lte.${fim}),and(pago_em.gte.${ini},pago_em.lte.${fim})`
     const [r, p] = await Promise.all([
-      db.from('parcelas_receber').select('*, contas_receber(descricao, unidade_id, cliente_id, forma_pagamento_id, clientes(nome), formas_pagamento(nome, taxa_percentual), unidades(cor))').or(filtro).order('vencimento'),
+      db.from('parcelas_receber').select('*, contas_receber(descricao, unidade_id, cliente_id, forma_pagamento_id, repasse_percentual, clientes(nome), formas_pagamento(nome, taxa_percentual), unidades(cor))').or(filtro).order('vencimento'),
       db.from('contas_pagar').select('*, unidades(cor)').or(filtro).order('vencimento'),
     ])
     setRec(r.data || []); setPag(p.data || [])
@@ -1374,6 +1391,10 @@ function Financeiro({ prefill, limparPrefill }) {
   const aPagar = soma(P.filter(i => i.status === 'pendente' && i.vencimento >= ini))
   const atrasR = soma(R.filter(i => i.status === 'pendente' && i.vencimento < ini))
   const atrasP = soma(P.filter(i => i.status === 'pendente' && i.vencimento < ini))
+  const rep = i => Number(i.valor) * Number(i.contas_receber?.repasse_percentual || 0) / 100
+  const somaRep = l => l.reduce((t, i) => t + rep(i), 0)
+  const repassado = somaRep(R.filter(i => i.status === 'paga')), liquido = recebido - repassado
+  const aReceberLiq = aReceber - somaRep(R.filter(i => i.status === 'pendente' && i.vencimento >= ini))
   const campo = k => v => setForm({ ...form, [k]: v })
   const situacao = i => i.status === 'paga' ? `Paga em ${dataBr(i.pago_em + 'T12:00')}` : i.vencimento < hojeIso ? 'Atrasada' : 'Pendente'
 
@@ -1394,8 +1415,9 @@ function Financeiro({ prefill, limparPrefill }) {
       {aba === 'resumo' && (
         <>
           <div className="resumo">
-            {[['Recebido no mês', recebido], ['A receber no mês', aReceber], ['Pago no mês', pago], ['A pagar no mês', aPagar],
-              ['Saldo realizado', recebido - pago], ['Saldo previsto', recebido - pago + aReceber - aPagar]].map(([t, v]) => (
+            {[['Recebido no mês', recebido], ['Repasse às unidades', -repassado], ['Líquido para você', liquido],
+              ['A receber no mês (líquido)', aReceberLiq], ['Pago no mês', pago], ['A pagar no mês', aPagar],
+              ['Saldo realizado', liquido - pago], ['Saldo previsto', liquido - pago + aReceberLiq - aPagar]].map(([t, v]) => (
               <div key={t} className="cartao"><small>{t}</small><div className="numero">{brl(v)}</div></div>
             ))}
           </div>
@@ -1431,12 +1453,12 @@ function Financeiro({ prefill, limparPrefill }) {
       )}
 
       {aba === 'receber' && (R.length === 0 ? <p className="vazio">Nada a receber ou recebido neste mês.</p> : R.map(i => {
-        const c = i.contas_receber, taxa = Number(c?.formas_pagamento?.taxa_percentual || 0)
+        const c = i.contas_receber, taxa = Number(c?.formas_pagamento?.taxa_percentual || 0), pctRep = Number(c?.repasse_percentual || 0)
         return (
           <div key={i.id} className="cartao linha" style={{ borderLeft: `6px solid ${c?.unidades?.cor || '#C4677F'}` }}>
             <div>
               <strong>{dataBr(i.vencimento + 'T12:00')}</strong> · {c?.clientes?.nome || 'Sem cliente'} · {c?.descricao} (parcela {i.numero})<br />
-              <small>{brl(i.valor)}{taxa > 0 && ` (líquido ${brl(i.valor * (1 - taxa / 100))})`} · {c?.formas_pagamento?.nome || 'Forma não informada'} · {situacao(i)}</small>
+              <small>{brl(i.valor)}{taxa > 0 && ` (após taxa da maquininha: ${brl(i.valor * (1 - taxa / 100))})`}{pctRep > 0 && ` · Repasse à unidade (${pctRep}%): −${brl(rep(i))} · Fica para você: ${brl(Number(i.valor) - rep(i))}`} · {c?.formas_pagamento?.nome || 'Forma não informada'} · {situacao(i)}</small>
             </div>
             <div className="form">
               {i.status === 'pendente' && <button onClick={() => baixar('parcelas_receber', i)}>Marcar como recebida</button>}
