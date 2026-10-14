@@ -303,6 +303,7 @@ function Sel({ valor, onChange, opcoes, vazio }) {
 function Servicos() {
   const [lista, setLista] = useState([])
   const [f, setF] = useState({ nome: '', preco: '', duracao_min: 60, retorno_dias: '' })
+  const [edit, setEdit] = useState(null)
   const carregar = async () => { const { data } = await db.from('servicos').select('*').order('nome'); setLista(data || []) }
   useEffect(() => { carregar() }, [])
   const salvar = async () => {
@@ -314,6 +315,7 @@ function Servicos() {
   return (
     <>
       <h1>Serviços</h1>
+      {edit && <EditarServico servico={edit} onFechar={() => setEdit(null)} onSalvo={() => { setEdit(null); carregar() }} />}
       <div className="cartao form">
         <input placeholder="Nome (ex.: Design de sobrancelha)" value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} />
         <input type="number" placeholder="Preço (R$)" value={f.preco} onChange={e => setF({ ...f, preco: e.target.value })} />
@@ -325,9 +327,13 @@ function Servicos() {
       {lista.map(s => (
         <div key={s.id} className="cartao linha">
           <div><strong>{s.nome}</strong><br /><small>{brl(s.preco)} · {s.duracao_min} min</small><br />
+            {s.preco_promocional != null && <><small className={promoAtiva(s) ? 'selo selo-ativo' : 'vazio'}>{promoAtiva(s) ? 'Promoção ativa · ' : 'Promoção fora do período · '}{textoPromo(s)}</small><br /></>}
             <small>Chamar de novo após <input type="number" style={{ width: 70, padding: 4 }} defaultValue={s.retorno_dias || ''} placeholder="dias"
               onBlur={e => db.from('servicos').update({ retorno_dias: Number(e.target.value) || null }).eq('id', s.id)} /> dias</small></div>
-          <button className="leve" onClick={() => alternar(s)}>{s.ativo ? 'Desativar' : 'Reativar'}</button>
+          <div className="form">
+            <button className="leve" onClick={() => setEdit(s)}>Editar</button>
+            <button className="leve" onClick={() => alternar(s)}>{s.ativo ? 'Desativar' : 'Reativar'}</button>
+          </div>
         </div>
       ))}
     </>
@@ -340,7 +346,7 @@ const dataBr = d => new Date(d).toLocaleDateString('pt-BR')
 function Historico({ cliente, admin, onVoltar, onEditar }) {
   const [itens, setItens] = useState([])
   useEffect(() => {
-    db.from('agendamentos').select('*, servicos(nome), usuarios(nome), unidades(nome,cor)')
+    db.from('agendamentos').select('*, servicos(nome), usuarios(nome), unidades(nome,cor), agendamento_servicos(servico_id, servicos(nome))')
       .eq('cliente_id', cliente.id).order('inicio', { ascending: false }).then(({ data }) => setItens(data || []))
   }, [cliente.id])
   const concluidos = itens.filter(i => i.status === 'concluido')
@@ -368,7 +374,7 @@ function Historico({ cliente, admin, onVoltar, onEditar }) {
       {itens.length === 0 && <p className="vazio">Nenhum atendimento registrado para esta cliente.</p>}
       {itens.map(i => (
         <div key={i.id} className={'cartao' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')} style={{ borderLeft: `6px solid ${i.unidades?.cor || '#C4677F'}` }}>
-          <strong>{dataBr(i.inicio)} às {fmtHora(i.inicio)}</strong> · {i.servicos?.nome}<br />
+          <strong>{dataBr(i.inicio)} às {fmtHora(i.inicio)}</strong> · {nomesServicos(i)}<br />
           <small>{i.usuarios?.nome} · {i.unidades?.nome} · {ROTULO[i.status]}</small>
           <textarea rows="2" placeholder="Anotações do atendimento" defaultValue={i.observacoes || ''}
             onBlur={e => db.from('agendamentos').update({ observacoes: e.target.value }).eq('id', i.id)} />
@@ -448,7 +454,7 @@ function Painel({ irParaAgenda }) {
     const fimSemana = somaDias(inicioSemana(new Date()), 6)
     db.from('v_retornos').select('*').lte('retorno_em', isoData(fimSemana)).order('retorno_em').then(({ data }) => setRetornos(data || []))
     const h0 = new Date(); h0.setHours(0, 0, 0, 0)
-    db.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco)')
+    db.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
       .gte('inicio', h0.toISOString()).lt('inicio', somaDias(h0, 1).toISOString()).neq('status', 'cancelado').order('inicio')
       .then(({ data }) => setHoje(data || []))
   }, [])
@@ -489,7 +495,7 @@ function Painel({ irParaAgenda }) {
         {hoje.length === 0 && <p className="vazio">Nenhum atendimento marcado para hoje.</p>}
         {hoje.map(i => (
           <div key={i.id} className="retorno" style={{ borderLeft: `5px solid ${i.unidades?.cor || '#C4677F'}`, paddingLeft: 10 }}>
-            <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome} · {i.servicos?.nome}<br /><small>{i.usuarios?.nome} · {ROTULO[i.status]}</small><br /><Zaps a={i} modelos={modelos} />
+            <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome} · {nomesServicos(i)}<br /><small>{i.usuarios?.nome} · {ROTULO[i.status]}</small><br /><Zaps a={i} modelos={modelos} />
           </div>
         ))}
       </div>
@@ -574,7 +580,7 @@ const montarMensagem = (modelo, a) => {
     .replaceAll('[dia e hora]', quando)
     .replaceAll('[endereço]', a.unidades?.endereco || a.unidades?.nome || '')
     .replaceAll('[profissional]', a.usuarios?.nome || '')
-    .replaceAll('[serviço]', a.servicos?.nome || '')
+    .replaceAll('[serviço]', nomesServicos(a))
 }
 const linkZap = (tipo, a, modelos) => {
   const fone = String(a.clientes?.telefone || '').replace(/\D/g, '')
@@ -632,6 +638,81 @@ function Mensagens() {
         </div>
       ))}
     </>
+  )
+}
+
+const promoAtiva = sv => !!sv && sv.preco_promocional != null && Number(sv.preco_promocional) < Number(sv.preco)
+  && (!sv.promo_inicio || sv.promo_inicio <= isoData(new Date())) && (!sv.promo_fim || sv.promo_fim >= isoData(new Date()))
+const precoVigente = sv => sv ? (promoAtiva(sv) ? Number(sv.preco_promocional) : Number(sv.preco)) : ''
+const textoPromo = sv => {
+  if (sv.preco_promocional == null) return ''
+  const periodo = [sv.promo_inicio && `de ${dataBr(sv.promo_inicio + 'T12:00')}`, sv.promo_fim && `até ${dataBr(sv.promo_fim + 'T12:00')}`].filter(Boolean).join(' ')
+  return `${sv.promo_nome || 'Promoção'}: ${brl(sv.preco_promocional)}${periodo ? ' · ' + periodo : ''}`
+}
+const nomesLista = a => { const l = (a.agendamento_servicos || []).map(x => x.servicos?.nome).filter(Boolean); return l.length ? l : [a.servicos?.nome || 'Sem nome'] }
+const nomesServicos = a => nomesLista(a).join(' + ')
+const totaisPagto = pg => {
+  const sub = pg.linhas.reduce((t, l) => t + (Number(l.preco) || 0), 0)
+  const d = Number(pg.desconto) || 0
+  const descValor = pg.tipoDesc === 'percentual' ? sub * Math.min(d, 100) / 100 : Math.min(d, sub)
+  return { sub, descValor: Number(descValor.toFixed(2)), total: Number(Math.max(0, sub - descValor).toFixed(2)) }
+}
+
+function EditarServico({ servico, onFechar, onSalvo }) {
+  const [f, setF] = useState({
+    nome: servico.nome, preco: servico.preco, duracao_min: servico.duracao_min, retorno_dias: servico.retorno_dias || '',
+    promo_nome: servico.promo_nome || '', preco_promocional: servico.preco_promocional ?? '', promo_inicio: servico.promo_inicio || '', promo_fim: servico.promo_fim || '',
+  })
+  const [pct, setPct] = useState('')
+  const [erro, setErro] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const campo = k => e => setF({ ...f, [k]: e.target.value })
+  const aplicarPct = v => {
+    setPct(v)
+    const n = Number(v)
+    setF({ ...f, preco_promocional: n > 0 && n < 100 ? (Number(f.preco) * (1 - n / 100)).toFixed(2) : '' })
+  }
+  const salvar = async () => {
+    const preco = Number(f.preco), promo = f.preco_promocional === '' ? null : Number(f.preco_promocional)
+    if (!f.nome.trim() || !(preco >= 0) || !(Number(f.duracao_min) > 0)) return setErro('Informe nome, preço e duração.')
+    if (promo !== null && !(promo >= 0 && promo < preco)) return setErro('O preço promocional precisa ser menor que o preço normal.')
+    if (f.promo_inicio && f.promo_fim && f.promo_fim < f.promo_inicio) return setErro('O fim da promoção não pode ser antes do início.')
+    setSalvando(true)
+    const { error } = await db.from('servicos').update({
+      nome: f.nome.trim(), preco, duracao_min: Number(f.duracao_min), retorno_dias: Number(f.retorno_dias) || null,
+      preco_promocional: promo, promo_nome: promo === null ? null : (f.promo_nome.trim() || null),
+      promo_inicio: promo === null ? null : (f.promo_inicio || null), promo_fim: promo === null ? null : (f.promo_fim || null),
+    }).eq('id', servico.id)
+    if (error) { setErro(FALHA); setSalvando(false); return }
+    onSalvo()
+  }
+  return (
+    <div className="fundo" onClick={onFechar}>
+      <div className="modal largo" onClick={e => e.stopPropagation()}>
+        <h2>Editar serviço</h2>
+        <div className="campos">
+          <label className="campo cheio">Nome<input value={f.nome} onChange={campo('nome')} /></label>
+          <label className="campo">Preço (R$)<input type="number" step="0.01" value={f.preco} onChange={campo('preco')} /></label>
+          <label className="campo">Duração (minutos)<input type="number" value={f.duracao_min} onChange={campo('duracao_min')} /></label>
+          <label className="campo cheio">Chamar a cliente de novo após (dias)<input type="number" value={f.retorno_dias} onChange={campo('retorno_dias')} /></label>
+        </div>
+        <h2 style={{ marginTop: 20 }}>Promoção</h2>
+        <p className="vazio" style={{ marginTop: -6 }}>Dentro do período, o preço promocional entra sozinho ao fechar o atendimento. Deixe o preço promocional vazio para não ter promoção.</p>
+        <div className="campos">
+          <label className="campo cheio">Nome da promoção (opcional)<input placeholder="Ex.: Semana da beleza" value={f.promo_nome} onChange={campo('promo_nome')} /></label>
+          <label className="campo">Preço promocional (R$)<input type="number" step="0.01" value={f.preco_promocional} onChange={e => { setPct(''); campo('preco_promocional')(e) }} /></label>
+          <label className="campo">ou desconto de (%)<input type="number" step="0.01" value={pct} onChange={e => aplicarPct(e.target.value)} /></label>
+          <label className="campo">Começa em (opcional)<input type="date" value={f.promo_inicio} onChange={campo('promo_inicio')} /></label>
+          <label className="campo">Termina em (opcional)<input type="date" value={f.promo_fim} onChange={campo('promo_fim')} /></label>
+        </div>
+        {erro && <p className="erro" style={{ marginTop: 10 }}>{erro}</p>}
+        <div className="form" style={{ marginTop: 16 }}>
+          <button onClick={salvar} disabled={salvando}>Salvar serviço</button>
+          <button className="leve" onClick={() => { setF({ ...f, preco_promocional: '', promo_nome: '', promo_inicio: '', promo_fim: '' }); setPct('') }}>Remover promoção</button>
+          <button className="leve" onClick={onFechar}>Cancelar</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -958,13 +1039,13 @@ function Relatorios() {
   useEffect(() => { db.from('unidades').select('id,nome').order('nome').then(({ data }) => setUnidades(data || [])) }, [])
   useEffect(() => {
     const prox = new Date(mes.getFullYear(), mes.getMonth() + 1, 1)
-    db.from('agendamentos').select('unidade_id, servicos(nome), clientes(nome), usuarios(nome)').eq('status', 'concluido')
+    db.from('agendamentos').select('unidade_id, servicos(nome), clientes(nome), usuarios(nome), agendamento_servicos(servicos(nome))').eq('status', 'concluido')
       .gte('inicio', mes.toISOString()).lt('inicio', prox.toISOString()).then(({ data }) => setAtend(data || []))
     db.from('v_faturamento_mensal').select('*').gte('mes', isoData(new Date(mes.getFullYear(), mes.getMonth() - 5, 1))).lte('mes', isoData(mes))
       .then(({ data }) => setFat(data || []))
   }, [mes])
   const A = atend.filter(i => !unid || i.unidade_id === unid)
-  const ranking = f => Object.entries(A.reduce((m, i) => { const k = f(i) || 'Sem nome'; m[k] = (m[k] || 0) + 1; return m }, {})).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, v, String(v)])
+  const ranking = f => Object.entries(A.reduce((m, i) => { [].concat(f(i) || 'Sem nome').forEach(k => { m[k] = (m[k] || 0) + 1 }); return m }, {})).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => [k, v, String(v)])
   const meses = Array.from({ length: 6 }, (_, k) => new Date(mes.getFullYear(), mes.getMonth() - 5 + k, 1))
   const doMes = m => fat.filter(f => f.mes === isoData(m) && (!unid || f.unidade_id === unid))
   const rotuloMes = m => m.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
@@ -997,7 +1078,7 @@ function Relatorios() {
           </div>
         ))}
       </div>
-      <div className="cartao"><h2>Serviços mais realizados</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.servicos?.nome)} />}</div>
+      <div className="cartao"><h2>Serviços mais realizados</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(nomesLista)} />}</div>
       <div className="cartao"><h2>Clientes mais frequentes</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.clientes?.nome)} />}</div>
       <div className="cartao"><h2>Atendimentos por profissional</h2>{A.length === 0 ? <p className="vazio">Sem atendimentos concluídos neste mês.</p> : <Barras itens={ranking(i => i.usuarios?.nome)} />}</div>
     </>
@@ -1387,7 +1468,7 @@ function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir, modelos
                 <div key={i.id} className={'gatend' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')}
                   style={{ top: min / 60 * PX, height: Math.max(dur / 60 * PX, 30), borderLeftColor: cor, background: cor + '26' }}>
                   <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
-                  <small>{i.servicos?.nome} · {ROTULO[i.status]}</small>
+                  <small>{nomesServicos(i)} · {ROTULO[i.status]}</small>
                   <button className="excluir" onClick={() => onExcluir(i)}>Excluir</button>
                   <Zaps a={i} modelos={modelos} />
                   <select value={i.status} onChange={e => onStatus(i, e.target.value)}>
@@ -1437,7 +1518,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
 
   const carregar = async () => {
     const { data } = await db.from('agendamentos')
-      .select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco)')
+      .select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
       .gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio')
     setItens(data || [])
     const ids = (data || []).map(i => i.id)
@@ -1453,14 +1534,17 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
     const s = ref.servicos.find(x => x.id === novo.servico_id)
     if (!novo.cliente_id || !s || !novo.unidade_id || !novo.profissional_id || !novo.data || !novo.hora) return setErro('Preencha todos os campos.')
     const ini = new Date(`${novo.data}T${novo.hora}`)
-    const fim = new Date(ini.getTime() + s.duracao_min * 60000)
+    const extrasIds = [...new Set((novo.extras || []).filter(Boolean))].filter(id => id !== novo.servico_id)
+    const minutos = s.duracao_min + extrasIds.reduce((t, id) => t + (ref.servicos.find(x => x.id === id)?.duracao_min || 0), 0)
+    const fim = new Date(ini.getTime() + minutos * 60000)
     const h = ref.unidades.find(u => u.id === novo.unidade_id)?.horario_funcionamento
     if (h?.abre && h?.fecha && (fmtHora(ini) < h.abre || fmtHora(fim) > h.fecha)) return setErro(`Fora do horário de funcionamento da unidade (${h.abre} às ${h.fecha}).`)
-    const { error } = await db.from('agendamentos').insert({
+    const { data: novoAg, error } = await db.from('agendamentos').insert({
       cliente_id: novo.cliente_id, servico_id: novo.servico_id, unidade_id: novo.unidade_id,
       profissional_id: novo.profissional_id, inicio: ini.toISOString(), fim: fim.toISOString(),
-    })
+    }).select().single()
     if (error) return setErro(error.code === '23P01' ? 'Esse horário já está ocupado para esta profissional.' : 'Não foi possível salvar. Tente de novo.')
+    if (extrasIds.length) await db.from('agendamento_servicos').insert(extrasIds.map((id, k) => ({ agendamento_id: novoAg.id, servico_id: id, ordem: k + 1 })))
     setNovo(null); setErro(''); setAviso(''); carregar()
   }
   const abrirProximo = a => {
@@ -1475,17 +1559,28 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
     if (status !== 'concluido') return
     if (usuario.perfil !== 'admin' || pagos.has(a.id)) return abrirProximo(a)
     setNovo(null); setErro('')
-    setPagto({ a, valor: ref.servicos.find(x => x.id === a.servico_id)?.preco || '', forma_id: '', parcelas: 1, data: isoData(new Date()), recebido: true })
+    setPagto({
+      a, desconto: '', tipoDesc: 'valor', forma_id: '', parcelas: 1, data: isoData(new Date()), recebido: true,
+      linhas: (a.agendamento_servicos?.length ? a.agendamento_servicos.map(x => x.servico_id) : [a.servico_id]).map(id => ({ servico_id: id, preco: precoVigente(ref.servicos.find(x => x.id === id)) })),
+    })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
   const salvarPagto = async () => {
-    const total = Number(pagto.valor), a = pagto.a
-    if (!(total > 0)) return setErro('Informe o valor do atendimento.')
+    const a = pagto.a, { descValor, total } = totaisPagto(pagto)
+    const ids = pagto.linhas.map(l => l.servico_id)
+    if (ids.some(id => !id)) return setErro('Escolha o procedimento em todas as linhas.')
+    if (new Set(ids).size !== ids.length) return setErro('O mesmo procedimento aparece mais de uma vez.')
+    if (!(total > 0)) return setErro('O total do atendimento precisa ser maior que zero.')
     const falhou = () => setErro('Não foi possível salvar. Tente de novo.')
+    const linhasBd = pagto.linhas.map((l, k) => ({ agendamento_id: a.id, servico_id: l.servico_id, preco_cobrado: Number(l.preco) || 0, ordem: k }))
+    if ((await db.from('agendamento_servicos').upsert(linhasBd, { onConflict: 'agendamento_id,servico_id' })).error) return falhou()
+    await db.from('agendamento_servicos').delete().eq('agendamento_id', a.id).not('servico_id', 'in', `(${ids.join(',')})`)
+    await db.from('agendamentos').update({ servico_id: ids[0] }).eq('id', a.id)
+    const nomes = pagto.linhas.map(l => ref.servicos.find(x => x.id === l.servico_id)?.nome).filter(Boolean).join(' + ')
     const n = Math.max(1, Number(pagto.parcelas) || 1)
     const { data: conta, error } = await db.from('contas_receber').insert({
       unidade_id: a.unidade_id, cliente_id: a.cliente_id, agendamento_id: a.id,
-      forma_pagamento_id: pagto.forma_id || null, descricao: a.servicos?.nome || 'Atendimento', valor_total: total,
+      forma_pagamento_id: pagto.forma_id || null, descricao: nomes || 'Atendimento', valor_total: total, desconto: descValor,
     }).select().single()
     if (error) return falhou()
     const base = Math.floor(total / n * 100) / 100
@@ -1495,7 +1590,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
       ...(pagto.recebido && k === 0 ? { status: 'paga', pago_em: isoData(new Date()) } : {}),
     }))
     if ((await db.from('parcelas_receber').insert(linhas)).error) return falhou()
-    if (total > 0) await db.from('fidelidade_movimentos').insert({ cliente_id: a.cliente_id, pontos: Math.floor(total * PONTOS_POR_REAL), motivo: a.servicos?.nome || 'Atendimento' })
+    await db.from('fidelidade_movimentos').insert({ cliente_id: a.cliente_id, pontos: Math.floor(total * PONTOS_POR_REAL), motivo: nomes || 'Atendimento' })
     setPagto(null); setErro(''); carregar(); abrirProximo(a)
   }
 
@@ -1521,25 +1616,54 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
         <button onClick={abrirNovo}>Novo atendimento</button>
       </div>
 
-      {pagto && (
-        <div className="cartao form">
-          <p style={{ width: '100%', margin: 0 }}><strong>Atendimento concluído. Registre o pagamento de {pagto.a.clientes?.nome}.</strong></p>
-          <input type="number" step="0.01" placeholder="Valor (R$)" value={pagto.valor} onChange={e => setPagto({ ...pagto, valor: e.target.value })} />
-          <Sel valor={pagto.forma_id} onChange={v => setPagto({ ...pagto, forma_id: v })} vazio="Forma de pagamento" opcoes={formas.map(f => [f.id, f.nome])} />
-          <input type="number" min="1" placeholder="Parcelas" style={{ width: 100 }} value={pagto.parcelas} onChange={e => setPagto({ ...pagto, parcelas: e.target.value })} />
-          <label>1º vencimento <input type="date" value={pagto.data} onChange={e => setPagto({ ...pagto, data: e.target.value })} /></label>
-          <label><input type="checkbox" checked={pagto.recebido} onChange={e => setPagto({ ...pagto, recebido: e.target.checked })} /> Primeira parcela já recebida</label>
-          <button onClick={salvarPagto}>Salvar pagamento</button>
-          <button className="leve" onClick={() => { const a = pagto.a; setPagto(null); setErro(''); abrirProximo(a) }}>Pular por enquanto</button>
-          {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
-        </div>
-      )}
+      {pagto && (() => {
+        const { sub, descValor, total } = totaisPagto(pagto)
+        const linha = (k, campos) => setPagto({ ...pagto, linhas: pagto.linhas.map((l, j) => j === k ? { ...l, ...campos } : l) })
+        return (
+          <div className="cartao">
+            <p style={{ margin: '0 0 12px' }}><strong>Atendimento concluído. Registre o pagamento de {pagto.a.clientes?.nome}.</strong></p>
+            {pagto.linhas.map((l, k) => {
+              const sv = ref.servicos.find(x => x.id === l.servico_id)
+              return (
+                <div key={k} className="form" style={{ marginBottom: 8 }}>
+                  <Sel valor={l.servico_id} onChange={v => linha(k, { servico_id: v, preco: precoVigente(ref.servicos.find(x => x.id === v)) })} vazio="Procedimento" opcoes={ref.servicos.map(x => [x.id, x.nome])} />
+                  <input type="number" step="0.01" style={{ width: 120 }} value={l.preco} onChange={e => linha(k, { preco: e.target.value })} />
+                  {promoAtiva(sv) && <span className="selo selo-ativo" title={textoPromo(sv)}>Promoção</span>}
+                  {pagto.linhas.length > 1 && <button className="excluir" onClick={() => setPagto({ ...pagto, linhas: pagto.linhas.filter((_, j) => j !== k) })}>Remover</button>}
+                </div>
+              )
+            })}
+            <button className="leve" onClick={() => setPagto({ ...pagto, linhas: [...pagto.linhas, { servico_id: '', preco: '' }] })}>+ Adicionar procedimento</button>
+            <div className="form" style={{ marginTop: 14 }}>
+              <label>Desconto <input type="number" step="0.01" min="0" style={{ width: 110 }} value={pagto.desconto} onChange={e => setPagto({ ...pagto, desconto: e.target.value })} /></label>
+              <select value={pagto.tipoDesc} onChange={e => setPagto({ ...pagto, tipoDesc: e.target.value })}><option value="valor">R$</option><option value="percentual">%</option></select>
+            </div>
+            <p style={{ margin: '12px 0' }}>Subtotal {brl(sub)} · Desconto −{brl(descValor)} · <strong>Total {brl(total)}</strong></p>
+            <div className="form">
+              <Sel valor={pagto.forma_id} onChange={v => setPagto({ ...pagto, forma_id: v })} vazio="Forma de pagamento" opcoes={formas.map(f => [f.id, f.nome])} />
+              <input type="number" min="1" placeholder="Parcelas" style={{ width: 100 }} value={pagto.parcelas} onChange={e => setPagto({ ...pagto, parcelas: e.target.value })} />
+              <label>1º vencimento <input type="date" value={pagto.data} onChange={e => setPagto({ ...pagto, data: e.target.value })} /></label>
+              <label><input type="checkbox" checked={pagto.recebido} onChange={e => setPagto({ ...pagto, recebido: e.target.checked })} /> Primeira parcela já recebida</label>
+              <button onClick={salvarPagto}>Salvar pagamento</button>
+              <button className="leve" onClick={() => { const a = pagto.a; setPagto(null); setErro(''); abrirProximo(a) }}>Pular por enquanto</button>
+              {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
+            </div>
+          </div>
+        )
+      })()}
 
       {novo && (
         <div className="cartao form">
           {aviso && <p style={{ width: '100%', margin: 0 }}><strong>{aviso}</strong></p>}
           <Sel valor={novo.cliente_id} onChange={campo('cliente_id')} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
           <Sel valor={novo.servico_id} onChange={campo('servico_id')} vazio="Serviço" opcoes={ref.servicos.map(s => [s.id, `${s.nome} (${s.duracao_min} min)`])} />
+          {(novo.extras || []).map((id, k) => (
+            <span key={k} className="form" style={{ gap: 6 }}>
+              <Sel valor={id} onChange={v => setNovo({ ...novo, extras: novo.extras.map((x, j) => j === k ? v : x) })} vazio="Outro procedimento" opcoes={ref.servicos.map(sv => [sv.id, `${sv.nome} (${sv.duracao_min} min)`])} />
+              <button className="excluir" onClick={() => setNovo({ ...novo, extras: novo.extras.filter((_, j) => j !== k) })}>Remover</button>
+            </span>
+          ))}
+          <button className="leve" onClick={() => setNovo({ ...novo, extras: [...(novo.extras || []), ''] })}>+ Procedimento</button>
           <Sel valor={novo.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
           {usuario.perfil === 'admin' && <Sel valor={novo.profissional_id} onChange={campo('profissional_id')} vazio="Profissional" opcoes={ref.profs.map(p => [p.id, p.nome])} />}
           <input type="date" value={novo.data} onChange={e => campo('data')(e.target.value)} />
@@ -1558,7 +1682,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
             {visiveis.filter(i => new Date(i.inicio).toDateString() === d.toDateString()).map(i => (
               <div key={i.id} className={'atend' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')} style={{ borderLeft: `5px solid ${i.unidades?.cor || '#C4677F'}` }}>
                 <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
-                <small>{i.servicos?.nome} · {i.usuarios?.nome}</small>
+                <small>{nomesServicos(i)} · {i.usuarios?.nome}</small>
                 <button className="excluir" title="Excluir atendimento" onClick={() => excluir(i)}>Excluir</button>
                 <Zaps a={i} modelos={modelos} />
                 <select value={i.status} onChange={e => mudarStatus(i, e.target.value)}>
@@ -1737,7 +1861,7 @@ function Financeiro({ prefill, limparPrefill }) {
   const carregar = async () => {
     const filtro = `and(status.eq.pendente,vencimento.lte.${fim}),and(pago_em.gte.${ini},pago_em.lte.${fim})`
     const [r, p] = await Promise.all([
-      db.from('parcelas_receber').select('*, contas_receber(descricao, unidade_id, cliente_id, forma_pagamento_id, repasse_percentual, clientes(nome), formas_pagamento(nome, taxa_percentual), unidades(cor))').or(filtro).order('vencimento'),
+      db.from('parcelas_receber').select('*, contas_receber(descricao, unidade_id, cliente_id, forma_pagamento_id, repasse_percentual, desconto, clientes(nome), formas_pagamento(nome, taxa_percentual), unidades(cor))').or(filtro).order('vencimento'),
       db.from('contas_pagar').select('*, unidades(cor)').or(filtro).order('vencimento'),
     ])
     setRec(r.data || []); setPag(p.data || [])
@@ -1860,7 +1984,7 @@ function Financeiro({ prefill, limparPrefill }) {
           <div key={i.id} className="cartao linha" style={{ borderLeft: `6px solid ${c?.unidades?.cor || '#C4677F'}` }}>
             <div>
               <strong>{dataBr(i.vencimento + 'T12:00')}</strong> · {c?.clientes?.nome || 'Sem cliente'} · {c?.descricao} (parcela {i.numero})<br />
-              <small>{brl(i.valor)}{taxa > 0 && ` (após taxa da maquininha: ${brl(i.valor * (1 - taxa / 100))})`}{pctRep > 0 && ` · Repasse à unidade (${pctRep}%): −${brl(rep(i))} · Fica para você: ${brl(Number(i.valor) - rep(i))}`} · {c?.formas_pagamento?.nome || 'Forma não informada'} · {situacao(i)}</small>
+              <small>{brl(i.valor)}{taxa > 0 && ` (após taxa da maquininha: ${brl(i.valor * (1 - taxa / 100))})`}{pctRep > 0 && ` · Repasse à unidade (${pctRep}%): −${brl(rep(i))} · Fica para você: ${brl(Number(i.valor) - rep(i))}`}{Number(c?.desconto) > 0 && ` · Desconto concedido no atendimento: ${brl(c.desconto)}`} · {c?.formas_pagamento?.nome || 'Forma não informada'} · {situacao(i)}</small>
             </div>
             <div className="form">
               {i.status === 'pendente' && <button onClick={() => baixar('parcelas_receber', i)}>Marcar como recebida</button>}
