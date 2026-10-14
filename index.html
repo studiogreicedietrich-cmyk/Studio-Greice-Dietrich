@@ -346,7 +346,7 @@ const dataBr = d => new Date(d).toLocaleDateString('pt-BR')
 function Historico({ cliente, admin, onVoltar, onEditar }) {
   const [itens, setItens] = useState([])
   useEffect(() => {
-    db.from('agendamentos').select('*, servicos(nome), usuarios(nome), unidades(nome,cor), agendamento_servicos(servico_id, servicos(nome))')
+    db.from('agendamentos').select('*, servicos!servico_id(nome), usuarios(nome), unidades(nome,cor), agendamento_servicos(servico_id, servicos(nome))')
       .eq('cliente_id', cliente.id).order('inicio', { ascending: false }).then(({ data }) => setItens(data || []))
   }, [cliente.id])
   const concluidos = itens.filter(i => i.status === 'concluido')
@@ -454,7 +454,7 @@ function Painel({ irParaAgenda }) {
     const fimSemana = somaDias(inicioSemana(new Date()), 6)
     db.from('v_retornos').select('*').lte('retorno_em', isoData(fimSemana)).order('retorno_em').then(({ data }) => setRetornos(data || []))
     const h0 = new Date(); h0.setHours(0, 0, 0, 0)
-    db.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
+    db.from('agendamentos').select('*, clientes(nome, telefone), servicos!servico_id(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
       .gte('inicio', h0.toISOString()).lt('inicio', somaDias(h0, 1).toISOString()).neq('status', 'cancelado').order('inicio')
       .then(({ data }) => setHoje(data || []))
   }, [])
@@ -1517,9 +1517,10 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   }, [])
 
   const carregar = async () => {
-    const { data } = await db.from('agendamentos')
-      .select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
+    const { data, error: erroAg } = await db.from('agendamentos')
+      .select('*, clientes(nome, telefone), servicos!servico_id(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
       .gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio')
+    if (erroAg) { console.error('Erro ao carregar agendamentos:', erroAg); setErro('Erro ao carregar agenda: ' + erroAg.message) }
     setItens(data || [])
     const ids = (data || []).map(i => i.id)
     if (ids.length) {
