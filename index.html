@@ -348,8 +348,8 @@ const dataBr = d => new Date(d).toLocaleDateString('pt-BR')
 function Historico({ cliente, admin, onVoltar, onEditar }) {
   const [itens, setItens] = useState([])
   useEffect(() => {
-    db.from('agendamentos').select('*, servicos(nome), usuarios(nome), unidades(nome,cor), agendamento_servicos(servico_id, preco_cobrado, servicos(nome))')
-      .eq('cliente_id', cliente.id).order('inicio', { ascending: false }).then(({ data }) => setItens(data || []))
+    buscarAgend('*, servicos!servico_id(nome), usuarios(nome), unidades(nome,cor)', JUNCAO_SERV, q => q.eq('cliente_id', cliente.id).order('inicio', { ascending: false }))
+      .then(({ data }) => setItens(data || []))
   }, [cliente.id])
   const concluidos = itens.filter(i => i.status === 'concluido')
   const proximo = [...itens].reverse().find(i => ['agendado', 'confirmado'].includes(i.status) && new Date(i.inicio) > new Date())
@@ -455,8 +455,7 @@ function Painel({ irParaAgenda }) {
     const fimSemana = somaDias(inicioSemana(new Date()), 6)
     db.from('v_retornos').select('*').lte('retorno_em', isoData(fimSemana)).order('retorno_em').then(({ data }) => setRetornos(data || []))
     const h0 = new Date(); h0.setHours(0, 0, 0, 0)
-    db.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, preco_cobrado, servicos(nome))')
-      .gte('inicio', h0.toISOString()).lt('inicio', somaDias(h0, 1).toISOString()).neq('status', 'cancelado').order('inicio')
+    buscarAgend(COLS_AGEND, JUNCAO_SERV, q => q.gte('inicio', h0.toISOString()).lt('inicio', somaDias(h0, 1).toISOString()).neq('status', 'cancelado').order('inicio'))
       .then(({ data }) => setHoje(data || []))
   }, [])
   const hojeIso = isoData(new Date())
@@ -555,6 +554,13 @@ function Exclusoes() {
   )
 }
 
+const JUNCAO_SERV = ', agendamento_servicos(servico_id, preco_cobrado, servicos(nome))'
+const COLS_AGEND = '*, clientes(nome, telefone), servicos!servico_id(nome), usuarios(nome), unidades(nome, cor, endereco)'
+// Se a lista de procedimentos falhar (ex.: migração ainda não rodada), a consulta é refeita sem ela e os atendimentos continuam aparecendo.
+const buscarAgend = async (colunas, juncao, filtrar) => {
+  const r = await filtrar(db.from('agendamentos').select(colunas + juncao))
+  return r.error ? filtrar(db.from('agendamentos').select(colunas)) : r
+}
 const PONTOS_POR_REAL = 1 // pontos de fidelidade ganhos a cada R$ 1 pago
 const FALHA = 'Não foi possível salvar. Tente de novo.'
 
@@ -1178,8 +1184,8 @@ function Relatorios() {
   useEffect(() => { db.from('unidades').select('id,nome').order('nome').then(({ data }) => setUnidades(data || [])) }, [])
   useEffect(() => {
     const prox = new Date(mes.getFullYear(), mes.getMonth() + 1, 1)
-    db.from('agendamentos').select('unidade_id, servicos(nome), clientes(nome), usuarios(nome), agendamento_servicos(servicos(nome))').eq('status', 'concluido')
-      .gte('inicio', mes.toISOString()).lt('inicio', prox.toISOString()).then(({ data }) => setAtend(data || []))
+    buscarAgend('unidade_id, servicos!servico_id(nome), clientes(nome), usuarios(nome)', ', agendamento_servicos(servicos(nome))', q => q.eq('status', 'concluido').gte('inicio', mes.toISOString()).lt('inicio', prox.toISOString()))
+      .then(({ data }) => setAtend(data || []))
     db.from('v_faturamento_mensal').select('*').gte('mes', isoData(new Date(mes.getFullYear(), mes.getMonth() - 5, 1))).lte('mes', isoData(mes))
       .then(({ data }) => setFat(data || []))
   }, [mes])
@@ -1634,6 +1640,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   const [excl, setExcl] = useState(null)
   const modelos = useModelos()
   const [modo, setModo] = useState('semana')
+  const [erroAg, setErroAg] = useState('')
   const [diaSel, setDiaSel] = useState((new Date().getDay() + 6) % 7)
   const [pagos, setPagos] = useState(new Set())
   const [formas, setFormas] = useState([])
@@ -1655,9 +1662,9 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   }, [])
 
   const carregar = async () => {
-    const { data } = await db.from('agendamentos')
-      .select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, preco_cobrado, servicos(nome))')
-      .gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio')
+    const r = await buscarAgend(COLS_AGEND, JUNCAO_SERV, q => q.gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio'))
+    setErroAg(r.error ? `Não foi possível carregar a agenda: ${r.error.message}` : '')
+    const data = r.data
     setItens(data || [])
     const ids = (data || []).map(i => i.id)
     if (ids.length) {
@@ -1760,6 +1767,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   return (
     <>
       <h1>Agenda</h1>
+      {erroAg && <p className="erro" style={{ marginBottom: 12 }}>{erroAg}</p>}
       {excl && <Justificativa titulo={excl.titulo} onCancelar={() => setExcl(null)}
         onConfirmar={async j => { const m = await excluirRegistro('agendamento', excl.id, j); if (!m) { setExcl(null); carregar() } return m }} />}
       <div className="cartao form">
