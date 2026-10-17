@@ -124,6 +124,7 @@ a.botao:hover { background:#F3C5D0 }
 .vale-canhoto small { font:500 12px 'Jost', sans-serif; letter-spacing:.3em; text-transform:uppercase; color:#93707C; margin-top:14px }
 .vale-canhoto strong { font:600 26px 'Cormorant Garamond', serif; color:#4A2A36 }
 .vale-canhoto .vale-codigo { font-size:26px; letter-spacing:.06em; white-space:nowrap }
+.modal .form > input:not([type=checkbox]):not([type=color]):not([type=number]), .modal .form > select, .modal .form > textarea { flex:1 1 220px; min-width:0 }
 .hub { display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:18px }
 .tile { display:flex; flex-direction:column; align-items:flex-start; gap:8px; text-align:left; padding:26px; border-radius:24px;
   background:#fff; color:var(--vinho); border:1px solid #F3E4DF; box-shadow:var(--sombra); transition:transform .25s, box-shadow .25s }
@@ -239,6 +240,7 @@ const vazioUnidade = { nome: '', endereco: '', telefone: '', cor: '#C4677F', per
 function Unidades() {
   const [lista, setLista] = useState([])
   const [form, setForm] = useState(vazioUnidade)
+  const [edit, setEdit] = useState(null)
   const carregar = async () => {
     const { data } = await db.from('unidades').select('*').order('nome')
     setLista(data || [])
@@ -247,7 +249,7 @@ function Unidades() {
   const salvar = async () => {
     if (!form.nome.trim()) return
     await db.from('unidades').insert({ ...form, percentual_repasse: Math.min(100, Math.max(0, Number(form.percentual_repasse) || 0)) })
-    setForm(vazioUnidade); carregar()
+    setForm(vazioUnidade); carregar(); fecharFormularios()
   }
   const salvarHorario = async (u, k, v) => {
     await db.from('unidades').update({ horario_funcionamento: { ...u.horario_funcionamento, [k]: v } }).eq('id', u.id)
@@ -261,23 +263,24 @@ function Unidades() {
   return (
     <>
       <h1>Unidades</h1>
-      <div className="cartao form">
+      {edit && <EditarUnidade unidade={edit} onFechar={() => setEdit(null)} onSalvo={() => { setEdit(null); carregar() }} />}
+      <Formulario titulo="Nova unidade" botao="+ Nova unidade">
         <input placeholder="Nome da unidade" value={form.nome} onChange={campo('nome')} />
         <input placeholder="Endereço" value={form.endereco} onChange={campo('endereco')} />
         <input placeholder="Telefone / WhatsApp" value={form.telefone} onChange={campo('telefone')} />
         <input type="number" step="0.01" min="0" max="100" placeholder="Repasse à unidade (%)" style={{ width: 190 }} value={form.percentual_repasse} onChange={campo('percentual_repasse')} />
         <label>Cor na agenda <input type="color" value={form.cor} onChange={campo('cor')} /></label>
         <button onClick={salvar}>Salvar unidade</button>
-      </div>
+      </Formulario>
       {lista.length === 0 && <p className="vazio">Nenhuma unidade cadastrada. Cadastre a primeira acima.</p>}
       {lista.map(u => (
         <div key={u.id} className="cartao linha" style={{ borderLeft: `6px solid ${u.cor}` }}>
           <div><strong>{u.nome}</strong><br /><small>{u.endereco} {u.telefone}</small><br />
-            <small>Funciona das <input type="time" style={{ padding: 4 }} defaultValue={u.horario_funcionamento?.abre || ''} onBlur={e => salvarHorario(u, 'abre', e.target.value)} /> às{' '}
-              <input type="time" style={{ padding: 4 }} defaultValue={u.horario_funcionamento?.fecha || ''} onBlur={e => salvarHorario(u, 'fecha', e.target.value)} /></small><br />
-            <small>Repasse à unidade <input type="number" step="0.01" min="0" max="100" style={{ width: 80, padding: 4 }} defaultValue={u.percentual_repasse || ''} placeholder="0"
-              onBlur={e => db.from('unidades').update({ percentual_repasse: Math.min(100, Math.max(0, Number(e.target.value) || 0)) }).eq('id', u.id)} /> % do valor de cada atendimento</small></div>
-          <button className="leve" onClick={() => alternar(u)}>{u.ativa ? 'Desativar' : 'Reativar'}</button>
+            <small>{u.horario_funcionamento?.abre ? `Funciona das ${u.horario_funcionamento.abre} às ${u.horario_funcionamento.fecha || '—'}` : 'Horário não informado'} · Repasse de {Number(u.percentual_repasse || 0)}%</small></div>
+          <div className="form">
+            <button className="leve" onClick={() => setEdit(u)}>Editar</button>
+            <button className="leve" onClick={() => alternar(u)}>{u.ativa ? 'Desativar' : 'Reativar'}</button>
+          </div>
         </div>
       ))}
     </>
@@ -309,27 +312,26 @@ function Servicos() {
   const salvar = async () => {
     if (!f.nome.trim()) return
     await db.from('servicos').insert({ nome: f.nome, preco: Number(f.preco) || 0, duracao_min: Number(f.duracao_min) || 60, retorno_dias: Number(f.retorno_dias) || null })
-    setF({ nome: '', preco: '', duracao_min: 60, retorno_dias: '' }); carregar()
+    setF({ nome: '', preco: '', duracao_min: 60, retorno_dias: '' }); carregar(); fecharFormularios()
   }
   const alternar = async s => { await db.from('servicos').update({ ativo: !s.ativo }).eq('id', s.id); carregar() }
   return (
     <>
       <h1>Serviços</h1>
       {edit && <EditarServico servico={edit} onFechar={() => setEdit(null)} onSalvo={() => { setEdit(null); carregar() }} />}
-      <div className="cartao form">
+      <Formulario titulo="Novo serviço" botao="+ Novo serviço">
         <input placeholder="Nome (ex.: Design de sobrancelha)" value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} />
         <input type="number" placeholder="Preço (R$)" value={f.preco} onChange={e => setF({ ...f, preco: e.target.value })} />
         <input type="number" placeholder="Duração (min)" value={f.duracao_min} onChange={e => setF({ ...f, duracao_min: e.target.value })} />
         <input type="number" placeholder="Chamar de novo após (dias)" value={f.retorno_dias} onChange={e => setF({ ...f, retorno_dias: e.target.value })} />
         <button onClick={salvar}>Salvar serviço</button>
-      </div>
+      </Formulario>
       {lista.length === 0 && <p className="vazio">Nenhum serviço cadastrado. Cadastre o primeiro acima.</p>}
       {lista.map(s => (
         <div key={s.id} className="cartao linha">
           <div><strong>{s.nome}</strong><br /><small>{brl(s.preco)} · {s.duracao_min} min</small><br />
             {s.preco_promocional != null && <><small className={promoAtiva(s) ? 'selo selo-ativo' : 'vazio'}>{promoAtiva(s) ? 'Promoção ativa · ' : 'Promoção fora do período · '}{textoPromo(s)}</small><br /></>}
-            <small>Chamar de novo após <input type="number" style={{ width: 70, padding: 4 }} defaultValue={s.retorno_dias || ''} placeholder="dias"
-              onBlur={e => db.from('servicos').update({ retorno_dias: Number(e.target.value) || null }).eq('id', s.id)} /> dias</small></div>
+            {s.retorno_dias ? <small>Chamar de novo após {s.retorno_dias} dias</small> : <small className="vazio">Sem retorno automático</small>}</div>
           <div className="form">
             <button className="leve" onClick={() => setEdit(s)}>Editar</button>
             <button className="leve" onClick={() => alternar(s)}>{s.ativo ? 'Desativar' : 'Reativar'}</button>
@@ -346,7 +348,7 @@ const dataBr = d => new Date(d).toLocaleDateString('pt-BR')
 function Historico({ cliente, admin, onVoltar, onEditar }) {
   const [itens, setItens] = useState([])
   useEffect(() => {
-    db.from('agendamentos').select('*, servicos!servico_id(nome), usuarios(nome), unidades(nome,cor), agendamento_servicos(servico_id, servicos(nome))')
+    db.from('agendamentos').select('*, servicos(nome), usuarios(nome), unidades(nome,cor), agendamento_servicos(servico_id, preco_cobrado, servicos(nome))')
       .eq('cliente_id', cliente.id).order('inicio', { ascending: false }).then(({ data }) => setItens(data || []))
   }, [cliente.id])
   const concluidos = itens.filter(i => i.status === 'concluido')
@@ -402,29 +404,28 @@ function Clientes({ admin }) {
   }
   const campo = k => e => setF({ ...f, [k]: e.target.value })
 
-  if (f) return (
-    <>
-      <h1>{f.id ? 'Editar cliente' : 'Novo cliente'}</h1>
-      <div className="cartao form">
-        <input placeholder="Nome completo" value={f.nome || ''} onChange={campo('nome')} />
-        <input placeholder="Telefone / WhatsApp" value={f.telefone || ''} onChange={campo('telefone')} />
-        <input placeholder="E-mail" value={f.email || ''} onChange={campo('email')} />
-        <label>Nascimento <input type="date" value={f.nascimento || ''} onChange={campo('nascimento')} /></label>
-        <input placeholder="CPF" value={f.cpf || ''} onChange={campo('cpf')} />
-        <input placeholder="Endereço" value={f.endereco || ''} onChange={campo('endereco')} />
-        <input placeholder="Como conheceu a clínica" value={f.como_conheceu || ''} onChange={campo('como_conheceu')} />
-        <textarea rows="2" placeholder="Alergias e restrições" value={f.alergias || ''} onChange={campo('alergias')} />
-        <textarea rows="3" placeholder="Observações gerais" value={f.observacoes || ''} onChange={campo('observacoes')} />
-        <button onClick={salvar}>Salvar cliente</button>
-        <button className="leve" onClick={() => setF(null)}>Cancelar</button>
+  const popupCliente = f && (
+    <Janela titulo={f.id ? 'Editar cliente' : 'Novo cliente'} onFechar={() => setF(null)}>
+      <div className="campos">
+        <label className="campo cheio">Nome completo<input value={f.nome || ''} onChange={campo('nome')} /></label>
+        <label className="campo">Telefone / WhatsApp<input value={f.telefone || ''} onChange={campo('telefone')} /></label>
+        <label className="campo">E-mail<input value={f.email || ''} onChange={campo('email')} /></label>
+        <label className="campo">Nascimento<input type="date" value={f.nascimento || ''} onChange={campo('nascimento')} /></label>
+        <label className="campo">CPF<input value={f.cpf || ''} onChange={campo('cpf')} /></label>
+        <label className="campo cheio">Endereço<input value={f.endereco || ''} onChange={campo('endereco')} /></label>
+        <label className="campo cheio">Como conheceu a clínica<input value={f.como_conheceu || ''} onChange={campo('como_conheceu')} /></label>
+        <label className="campo cheio">Alergias e restrições<textarea rows="2" value={f.alergias || ''} onChange={campo('alergias')} /></label>
+        <label className="campo cheio">Observações gerais<textarea rows="3" value={f.observacoes || ''} onChange={campo('observacoes')} /></label>
       </div>
-    </>
+      <div className="form" style={{ marginTop: 16 }}><button onClick={salvar}>Salvar cliente</button><button className="leve" onClick={() => setF(null)}>Cancelar</button></div>
+    </Janela>
   )
-  if (sel) return <Historico cliente={sel} admin={admin} onVoltar={() => setSel(null)} onEditar={c => setF({ ...vazioCliente, ...c })} />
+  if (sel) return <>{popupCliente}<Historico cliente={sel} admin={admin} onVoltar={() => setSel(null)} onEditar={c => setF({ ...vazioCliente, ...c })} /></>
 
   const vistos = lista.filter(c => c.nome.toLowerCase().includes(busca.toLowerCase()))
   return (
     <>
+      {popupCliente}
       <h1>Clientes</h1>
       <div className="form" style={{ marginBottom: 12 }}>
         <input placeholder="Buscar cliente pelo nome" value={busca} onChange={e => setBusca(e.target.value)} style={{ flex: 1 }} />
@@ -454,7 +455,7 @@ function Painel({ irParaAgenda }) {
     const fimSemana = somaDias(inicioSemana(new Date()), 6)
     db.from('v_retornos').select('*').lte('retorno_em', isoData(fimSemana)).order('retorno_em').then(({ data }) => setRetornos(data || []))
     const h0 = new Date(); h0.setHours(0, 0, 0, 0)
-    db.from('agendamentos').select('*, clientes(nome, telefone), servicos!servico_id(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
+    db.from('agendamentos').select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, preco_cobrado, servicos(nome))')
       .gte('inicio', h0.toISOString()).lt('inicio', somaDias(h0, 1).toISOString()).neq('status', 'cancelado').order('inicio')
       .then(({ data }) => setHoje(data || []))
   }, [])
@@ -599,47 +600,6 @@ function Zaps({ a, modelos }) {
   )
 }
 
-function Mensagens() {
-  const [textos, setTextos] = useState(MODELOS_PADRAO)
-  const [aviso, setAviso] = useState('')
-  useEffect(() => {
-    db.from('mensagens_modelo').select('tipo,texto').then(({ data }) => {
-      if (data?.length) setTextos(x => ({ ...x, ...Object.fromEntries(data.map(d => [d.tipo, d.texto])) }))
-    })
-  }, [])
-  const amanha = new Date(); amanha.setDate(amanha.getDate() + 1); amanha.setHours(14, 30, 0, 0)
-  const exemplo = { inicio: amanha.toISOString(), clientes: { nome: 'Maria' }, unidades: { endereco: 'Rua das Flores, 123 - Centro' }, usuarios: { nome: 'Greice' }, servicos: { nome: 'Design de sobrancelha' } }
-  const inserir = (tipo, campo) => {
-    const el = document.getElementById('msg-' + tipo)
-    const ini = el?.selectionStart ?? textos[tipo].length, fim = el?.selectionEnd ?? ini
-    setTextos({ ...textos, [tipo]: textos[tipo].slice(0, ini) + campo + textos[tipo].slice(fim) })
-    el?.focus()
-  }
-  const salvar = async (tipo, titulo) => {
-    const { error } = await db.from('mensagens_modelo').upsert({ tipo, titulo, texto: textos[tipo], atualizado_em: new Date().toISOString() }, { onConflict: 'tipo' })
-    setAviso(error ? 'Não foi possível salvar. Confira se a migração do SQL foi executada.' : `Mensagem de ${titulo.toLowerCase()} salva.`)
-  }
-  return (
-    <>
-      <h1>Mensagens do WhatsApp</h1>
-      <p className="vazio" style={{ marginTop: -6 }}>Esses textos abrem prontos no WhatsApp da cliente, na agenda e no painel. Você só confere e envia.</p>
-      {aviso && <p style={{ color: 'var(--rosa-esc)', fontWeight: 500 }}>{aviso}</p>}
-      {TIPOS_MSG.map(([tipo, titulo]) => (
-        <div key={tipo} className="cartao">
-          <h2>{titulo}</h2>
-          <textarea id={'msg-' + tipo} rows="6" value={textos[tipo]} onChange={e => setTextos({ ...textos, [tipo]: e.target.value })} />
-          <div className="chips-campo">
-            <small className="vazio">Inserir:</small>
-            {CAMPOS_MSG.map(c => <button key={c} className="leve" style={{ padding: '4px 12px' }} onClick={() => inserir(tipo, c)}>{c}</button>)}
-          </div>
-          <p className="vazio" style={{ margin: '10px 0 6px' }}>Prévia com um exemplo:</p>
-          <div className="balao">{montarMensagem(textos[tipo], exemplo)}</div>
-          <button style={{ marginTop: 14 }} onClick={() => salvar(tipo, titulo)}>Salvar mensagem</button>
-        </div>
-      ))}
-    </>
-  )
-}
 
 const promoAtiva = sv => !!sv && sv.preco_promocional != null && Number(sv.preco_promocional) < Number(sv.preco)
   && (!sv.promo_inicio || sv.promo_inicio <= isoData(new Date())) && (!sv.promo_fim || sv.promo_fim >= isoData(new Date()))
@@ -716,6 +676,180 @@ function EditarServico({ servico, onFechar, onSalvo }) {
   )
 }
 
+const fecharFormularios = () => window.dispatchEvent(new Event('fechar-formularios'))
+
+function Janela({ titulo, onFechar, enorme, children }) {
+  useEffect(() => {
+    const tecla = e => { if (e.key === 'Escape' && onFechar) onFechar() }
+    window.addEventListener('keydown', tecla)
+    return () => window.removeEventListener('keydown', tecla)
+  }, [])
+  return (
+    <div className="fundo">
+      <div className={'modal ' + (enorme ? 'enorme' : 'largo')} role="dialog" aria-modal="true" aria-label={titulo}>
+        <div className="linha" style={{ marginBottom: 14 }}>
+          <h2 style={{ margin: 0 }}>{titulo}</h2>
+          <button className="leve" onClick={onFechar} aria-label="Fechar" style={{ padding: '6px 14px' }}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Formulario({ titulo, botao, abertoInicial, children }) {
+  const [aberto, setAberto] = useState(!!abertoInicial)
+  useEffect(() => {
+    const fechar = () => setAberto(false)
+    window.addEventListener('fechar-formularios', fechar)
+    return () => window.removeEventListener('fechar-formularios', fechar)
+  }, [])
+  return (
+    <>
+      <div style={{ marginBottom: 12 }}><button onClick={() => setAberto(true)}>{botao}</button></div>
+      {aberto && <Janela titulo={titulo} onFechar={() => setAberto(false)}><div className="form">{children}</div></Janela>}
+    </>
+  )
+}
+
+const exemploMsg = () => {
+  const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(14, 30, 0, 0)
+  return { inicio: d.toISOString(), clientes: { nome: 'Maria' }, unidades: { endereco: 'Rua das Flores, 123 - Centro' }, usuarios: { nome: 'Greice' }, servicos: { nome: 'Design de sobrancelha' } }
+}
+
+function EditorMensagem({ tipo, titulo, inicial, onFechar, onSalvo }) {
+  const [texto, setTexto] = useState(inicial)
+  const [aviso, setAviso] = useState('')
+  const inserir = campo => {
+    const el = document.getElementById('msg-editor')
+    const ini = el?.selectionStart ?? texto.length, fim = el?.selectionEnd ?? ini
+    setTexto(texto.slice(0, ini) + campo + texto.slice(fim))
+    el?.focus()
+  }
+  const salvar = async () => {
+    const { error } = await db.from('mensagens_modelo').upsert({ tipo, titulo, texto, atualizado_em: new Date().toISOString() }, { onConflict: 'tipo' })
+    if (error) return setAviso('Não foi possível salvar. Confira se a migração do SQL foi executada.')
+    onSalvo(texto)
+  }
+  return (
+    <Janela titulo={titulo} onFechar={onFechar}>
+      <textarea id="msg-editor" rows="7" value={texto} onChange={e => setTexto(e.target.value)} />
+      <div className="chips-campo">
+        <small className="vazio">Inserir:</small>
+        {CAMPOS_MSG.map(c => <button key={c} className="leve" style={{ padding: '4px 12px' }} onClick={() => inserir(c)}>{c}</button>)}
+      </div>
+      <p className="vazio" style={{ margin: '12px 0 6px' }}>Prévia com um exemplo:</p>
+      <div className="balao">{montarMensagem(texto, exemploMsg())}</div>
+      {aviso && <p className="erro" style={{ marginTop: 10 }}>{aviso}</p>}
+      <div className="form" style={{ marginTop: 16 }}>
+        <button onClick={salvar}>Salvar mensagem</button>
+        <button className="leve" onClick={onFechar}>Cancelar</button>
+      </div>
+    </Janela>
+  )
+}
+
+function Mensagens() {
+  const [textos, setTextos] = useState(MODELOS_PADRAO)
+  const [editando, setEditando] = useState(null)
+  useEffect(() => {
+    db.from('mensagens_modelo').select('tipo,texto').then(({ data }) => {
+      if (data?.length) setTextos(x => ({ ...x, ...Object.fromEntries(data.map(d => [d.tipo, d.texto])) }))
+    })
+  }, [])
+  return (
+    <>
+      <h1>Mensagens do WhatsApp</h1>
+      <p className="vazio" style={{ marginTop: -6 }}>Esses textos abrem prontos no WhatsApp da cliente, na agenda e no painel. Você só confere e envia.</p>
+      {editando && <EditorMensagem tipo={editando[0]} titulo={editando[1]} inicial={textos[editando[0]]} onFechar={() => setEditando(null)}
+        onSalvo={t => { setTextos({ ...textos, [editando[0]]: t }); setEditando(null) }} />}
+      {TIPOS_MSG.map(([tipo, titulo]) => (
+        <div key={tipo} className="cartao">
+          <div className="linha" style={{ marginBottom: 10 }}><h2 style={{ margin: 0 }}>{titulo}</h2><button className="leve" onClick={() => setEditando([tipo, titulo])}>Editar</button></div>
+          <div className="balao">{montarMensagem(textos[tipo], exemploMsg())}</div>
+        </div>
+      ))}
+    </>
+  )
+}
+
+function EditarUnidade({ unidade, onFechar, onSalvo }) {
+  const h = unidade.horario_funcionamento || {}
+  const [f, setF] = useState({ nome: unidade.nome, endereco: unidade.endereco || '', telefone: unidade.telefone || '', cor: unidade.cor || '#C4677F', abre: h.abre || '', fecha: h.fecha || '', repasse: unidade.percentual_repasse ?? 0 })
+  const [erro, setErro] = useState('')
+  const campo = k => e => setF({ ...f, [k]: e.target.value })
+  const salvar = async () => {
+    if (!f.nome.trim()) return setErro('Informe o nome da unidade.')
+    const { error } = await db.from('unidades').update({
+      nome: f.nome.trim(), endereco: f.endereco.trim() || null, telefone: f.telefone.trim() || null, cor: f.cor,
+      horario_funcionamento: { ...h, abre: f.abre, fecha: f.fecha }, percentual_repasse: Math.min(100, Math.max(0, Number(f.repasse) || 0)),
+    }).eq('id', unidade.id)
+    if (error) return setErro(FALHA)
+    onSalvo()
+  }
+  return (
+    <Janela titulo="Editar unidade" onFechar={onFechar}>
+      <div className="campos">
+        <label className="campo cheio">Nome<input value={f.nome} onChange={campo('nome')} /></label>
+        <label className="campo cheio">Endereço<input value={f.endereco} onChange={campo('endereco')} /></label>
+        <label className="campo">Telefone / WhatsApp<input value={f.telefone} onChange={campo('telefone')} /></label>
+        <label className="campo">Cor na agenda<input type="color" value={f.cor} onChange={campo('cor')} style={{ height: 44, padding: 4 }} /></label>
+        <label className="campo">Abre às<input type="time" value={f.abre} onChange={campo('abre')} /></label>
+        <label className="campo">Fecha às<input type="time" value={f.fecha} onChange={campo('fecha')} /></label>
+        <label className="campo cheio">Repasse à unidade (% do valor de cada atendimento)<input type="number" step="0.01" min="0" max="100" value={f.repasse} onChange={campo('repasse')} /></label>
+      </div>
+      {erro && <p className="erro" style={{ marginTop: 10 }}>{erro}</p>}
+      <div className="form" style={{ marginTop: 16 }}><button onClick={salvar}>Salvar unidade</button><button className="leve" onClick={onFechar}>Cancelar</button></div>
+    </Janela>
+  )
+}
+
+function EditarMembro({ membro, unidades, marcadas, eu, onFechar, onSalvo }) {
+  const [perfil, setPerfil] = useState(membro.perfil)
+  const [ativo, setAtivo] = useState(membro.ativo)
+  const [uns, setUns] = useState(marcadas)
+  const [erro, setErro] = useState('')
+  const trocar = id => setUns(uns.includes(id) ? uns.filter(x => x !== id) : [...uns, id])
+  const salvar = async () => {
+    const r1 = await db.from('usuarios').update({ perfil, ativo }).eq('id', membro.id)
+    const r2 = await db.from('usuario_unidades').delete().eq('usuario_id', membro.id)
+    const r3 = uns.length ? await db.from('usuario_unidades').insert(uns.map(u => ({ usuario_id: membro.id, unidade_id: u }))) : {}
+    if (r1.error || r2.error || r3.error) return setErro(FALHA)
+    onSalvo()
+  }
+  return (
+    <Janela titulo={`Editar ${membro.nome}`} onFechar={onFechar}>
+      <div className="campos">
+        <label className="campo">Perfil<Sel valor={perfil} onChange={setPerfil} vazio="Perfil" opcoes={[['admin', 'Administração'], ['profissional', 'Profissional']]} /></label>
+        {membro.id !== eu && <label className="campo" style={{ justifyContent: 'flex-end' }}><span><input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} /> Acesso ativo</span></label>}
+      </div>
+      <p style={{ margin: '16px 0 6px' }}>Unidades em que atende</p>
+      <div className="form">{unidades.map(u => <label key={u.id}><input type="checkbox" checked={uns.includes(u.id)} onChange={() => trocar(u.id)} /> {u.nome}</label>)}</div>
+      {membro.id === eu && <p className="vazio" style={{ marginTop: 10 }}>Você não pode alterar o próprio perfil nem desativar o próprio acesso.</p>}
+      {erro && <p className="erro" style={{ marginTop: 10 }}>{erro}</p>}
+      <div className="form" style={{ marginTop: 16 }}><button onClick={salvar}>Salvar</button><button className="leve" onClick={onFechar}>Cancelar</button></div>
+    </Janela>
+  )
+}
+
+function EditarForma({ forma, onFechar, onSalvo }) {
+  const [taxa, setTaxa] = useState(forma.taxa_percentual)
+  const [dias, setDias] = useState(forma.dias_para_receber)
+  const salvar = async () => {
+    await db.from('formas_pagamento').update({ taxa_percentual: Number(taxa) || 0, dias_para_receber: Number(dias) || 0 }).eq('id', forma.id)
+    onSalvo()
+  }
+  return (
+    <Janela titulo={forma.nome} onFechar={onFechar}>
+      <div className="campos">
+        <label className="campo">Taxa (%)<input type="number" step="0.01" value={taxa} onChange={e => setTaxa(e.target.value)} /></label>
+        <label className="campo">Dias para o dinheiro cair<input type="number" value={dias} onChange={e => setDias(e.target.value)} /></label>
+      </div>
+      <div className="form" style={{ marginTop: 16 }}><button onClick={salvar}>Salvar</button><button className="leve" onClick={onFechar}>Cancelar</button></div>
+    </Janela>
+  )
+}
+
 async function lancarReceber({ unidade_id, cliente_id, forma_id, descricao, total, parcelas, data, recebido, pacote_cliente_id }) {
   const n = Math.max(1, Number(parcelas) || 1)
   const { data: conta, error } = await db.from('contas_receber').insert({
@@ -783,11 +917,11 @@ function Compras() {
     await db.from('estoque').upsert({ produto_id: pr.id, unidade_id: unid, quantidade: Number(v) || 0 }, { onConflict: 'produto_id,unidade_id' })
     carregar()
   }
-  const addForn = async () => { if (!nf.trim()) return; await db.from('fornecedores').insert({ nome: nf }); setNf(''); carregar() }
+  const addForn = async () => { if (!nf.trim()) return; await db.from('fornecedores').insert({ nome: nf }); setNf(''); carregar(); fecharFormularios() }
   const addProd = async () => {
     if (!np.nome.trim()) return
     await db.from('produtos').insert({ nome: np.nome, unidade_medida: np.unidade_medida || 'un', estoque_minimo: Number(np.estoque_minimo) || 0 })
-    setNp({ nome: '', unidade_medida: 'un', estoque_minimo: '' }); carregar()
+    setNp({ nome: '', unidade_medida: 'un', estoque_minimo: '' }); carregar(); fecharFormularios()
   }
   const qtd = pr => Number(estoque.find(e => e.produto_id === pr.id && e.unidade_id === unid)?.quantidade || 0)
   const baixos = ref.produtos.filter(pr => pr.estoque_minimo > 0 && qtd(pr) <= pr.estoque_minimo)
@@ -804,7 +938,8 @@ function Compras() {
         <>
           <div style={{ marginBottom: 12 }}><button onClick={novaCompra}>Nova compra</button></div>
           {form && (
-            <div className="cartao form">
+            <Janela titulo="Nova compra" onFechar={() => { setForm(null); setErro('') }}>
+            <div className="form">
               <Sel valor={form.unidade_id} onChange={v => setForm({ ...form, unidade_id: v })} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
               <Sel valor={form.fornecedor_id} onChange={v => setForm({ ...form, fornecedor_id: v })} vazio="Fornecedor (opcional)" opcoes={ref.fornecedores.map(f => [f.id, f.nome])} />
               {form.itens.map((it, k) => (
@@ -826,6 +961,7 @@ function Compras() {
               <button className="leve" onClick={() => { setForm(null); setErro('') }}>Cancelar</button>
               {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
             </div>
+            </Janela>
           )}
           {compras.length === 0 && <p className="vazio">Nenhuma compra registrada. Cadastre antes os produtos na aba "Produtos e fornecedores".</p>}
           {compras.map(c => (
@@ -860,16 +996,16 @@ function Compras() {
 
       {aba === 'cadastros' && (
         <>
-          <div className="cartao form">
+          <Formulario titulo="Novo produto" botao="+ Novo produto">
             <input placeholder="Nome do produto" value={np.nome} onChange={e => setNp({ ...np, nome: e.target.value })} />
             <input placeholder="Medida (un, ml, g)" style={{ width: 150 }} value={np.unidade_medida} onChange={e => setNp({ ...np, unidade_medida: e.target.value })} />
             <input type="number" placeholder="Estoque mínimo" style={{ width: 150 }} value={np.estoque_minimo} onChange={e => setNp({ ...np, estoque_minimo: e.target.value })} />
             <button onClick={addProd}>Salvar produto</button>
-          </div>
-          <div className="cartao form">
+          </Formulario>
+          <Formulario titulo="Novo fornecedor" botao="+ Novo fornecedor">
             <input placeholder="Nome do fornecedor" value={nf} onChange={e => setNf(e.target.value)} />
             <button onClick={addForn}>Salvar fornecedor</button>
-          </div>
+          </Formulario>
           <p className="vazio">Produtos: {ref.produtos.map(x => x.nome).join(', ') || 'nenhum'}.<br />Fornecedores: {ref.fornecedores.map(x => x.nome).join(', ') || 'nenhum'}.</p>
         </>
       )}
@@ -907,7 +1043,7 @@ function Pacotes() {
     if (!fp.nome.trim() || !(Number(fp.sessoes) > 0) || !(Number(fp.preco) > 0)) return setMsg('Informe nome, número de sessões e preço do pacote.')
     const { error } = await db.from('pacotes').insert({ nome: fp.nome, servico_id: fp.servico_id || null, sessoes: Number(fp.sessoes), preco: Number(fp.preco), validade_dias: Number(fp.validade_dias) || null })
     if (error) return setMsg(FALHA)
-    setMsg(''); setFp({ nome: '', servico_id: '', sessoes: '', preco: '', validade_dias: '' }); carregar()
+    setMsg(''); setFp({ nome: '', servico_id: '', sessoes: '', preco: '', validade_dias: '' }); carregar(); fecharFormularios()
   }
   const vender = async () => {
     const pc = pacotes.find(x => x.id === venda.pacote_id)
@@ -918,7 +1054,7 @@ function Pacotes() {
     const e2 = await lancarReceber({ unidade_id: venda.unidade_id, cliente_id: venda.cliente_id, forma_id: venda.forma_id, descricao: `Pacote ${pc.nome}`, total: Number(pc.preco), parcelas: venda.parcelas, data: isoData(new Date()), recebido: venda.recebido, pacote_cliente_id: pcli.id })
     if (e2) return setMsg('Pacote criado, mas o lançamento financeiro falhou. Registre o valor no Financeiro.')
     await db.from('fidelidade_movimentos').insert({ cliente_id: venda.cliente_id, pontos: Math.floor(Number(pc.preco) * PONTOS_POR_REAL), motivo: `Pacote ${pc.nome}` })
-    setMsg(''); setVenda({ ...venda, cliente_id: '', pacote_id: '' }); carregar()
+    setMsg(''); setVenda({ ...venda, cliente_id: '', pacote_id: '' }); carregar(); fecharFormularios()
   }
   const alternarPacote = async x => { await db.from('pacotes').update({ ativo: !x.ativo }).eq('id', x.id); carregar() }
   const usar = async x => { await db.from('pacotes_cliente').update({ sessoes_restantes: x.sessoes_restantes - 1 }).eq('id', x.id); carregar() }
@@ -926,7 +1062,7 @@ function Pacotes() {
     const n = Math.abs(Number(pt.pontos))
     if (!pt.cliente_id || !(n > 0)) return setMsg('Escolha a cliente e informe os pontos.')
     await db.from('fidelidade_movimentos').insert({ cliente_id: pt.cliente_id, pontos: sinal * n, motivo: pt.motivo || (sinal > 0 ? 'Bônus' : 'Resgate') })
-    setMsg(''); setPt({ cliente_id: '', pontos: '', motivo: '' }); carregar()
+    setMsg(''); setPt({ cliente_id: '', pontos: '', motivo: '' }); carregar(); fecharFormularios()
   }
   const nomeCli = id => ref.clientes.find(c => c.id === id)?.nome || 'Cliente'
   const secoes = [
@@ -958,14 +1094,15 @@ function Pacotes() {
       {msg && <p className="erro" style={{ marginBottom: 12 }}>{msg}</p>}
       {sec === 'catalogo' && <>
       <h1>Pacotes à venda</h1>
-      <div className="cartao form">
+      <Formulario titulo="Novo pacote" botao="+ Novo pacote">
         <input placeholder="Nome (ex.: 5 limpezas de pele)" value={fp.nome} onChange={e => setFp({ ...fp, nome: e.target.value })} />
         <Sel valor={fp.servico_id} onChange={v => setFp({ ...fp, servico_id: v })} vazio="Serviço" opcoes={ref.servicos.map(x => [x.id, x.nome])} />
         <input type="number" placeholder="Sessões" style={{ width: 100 }} value={fp.sessoes} onChange={e => setFp({ ...fp, sessoes: e.target.value })} />
         <input type="number" step="0.01" placeholder="Preço (R$)" style={{ width: 130 }} value={fp.preco} onChange={e => setFp({ ...fp, preco: e.target.value })} />
         <input type="number" placeholder="Validade (dias)" style={{ width: 140 }} value={fp.validade_dias} onChange={e => setFp({ ...fp, validade_dias: e.target.value })} />
         <button onClick={criar}>Criar pacote</button>
-      </div>
+      {msg && <p className="erro" style={{ width: '100%' }}>{msg}</p>}
+      </Formulario>
       {pacotes.length === 0 && <p className="vazio">Nenhum pacote criado. Crie o primeiro acima.</p>}
       {pacotes.map(x => (
         <div key={x.id} className="cartao linha" style={{ opacity: x.ativo ? 1 : .55 }}>
@@ -980,7 +1117,7 @@ function Pacotes() {
       </>}
       {sec === 'venda' && <>
       <h1>Vender pacote</h1>
-      <div className="cartao form">
+      <Formulario titulo="Vender pacote" botao="Vender pacote a uma cliente" abertoInicial>
         <Sel valor={venda.cliente_id} onChange={v => setVenda({ ...venda, cliente_id: v })} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
         <Sel valor={venda.pacote_id} onChange={v => setVenda({ ...venda, pacote_id: v })} vazio="Pacote" opcoes={pacotes.filter(x => x.ativo).map(x => [x.id, x.nome])} />
         <Sel valor={venda.unidade_id} onChange={v => setVenda({ ...venda, unidade_id: v })} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
@@ -988,7 +1125,8 @@ function Pacotes() {
         <input type="number" min="1" placeholder="Parcelas" style={{ width: 100 }} value={venda.parcelas} onChange={e => setVenda({ ...venda, parcelas: e.target.value })} />
         <label><input type="checkbox" checked={venda.recebido} onChange={e => setVenda({ ...venda, recebido: e.target.checked })} /> Primeira parcela já recebida</label>
         <button onClick={vender}>Vender e lançar no financeiro</button>
-      </div>
+      {msg && <p className="erro" style={{ width: '100%' }}>{msg}</p>}
+      </Formulario>
 
       </>}
       {sec === 'andamento' && <>
@@ -1005,13 +1143,14 @@ function Pacotes() {
       {sec === 'fidelidade' && <>
       <h1>Fidelidade</h1>
       <p className="vazio">Cada R$ 1 pago vale {PONTOS_POR_REAL} ponto (ao registrar o pagamento de um atendimento ou vender um pacote).</p>
-      <div className="cartao form">
+      <Formulario titulo="Pontos de fidelidade" botao="Dar ou resgatar pontos">
         <Sel valor={pt.cliente_id} onChange={v => setPt({ ...pt, cliente_id: v })} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
         <input type="number" placeholder="Pontos" style={{ width: 110 }} value={pt.pontos} onChange={e => setPt({ ...pt, pontos: e.target.value })} />
         <input placeholder="Motivo (opcional)" value={pt.motivo} onChange={e => setPt({ ...pt, motivo: e.target.value })} />
         <button onClick={() => mover(1)}>Dar pontos</button>
         <button className="leve" onClick={() => mover(-1)}>Resgatar pontos</button>
-      </div>
+      {msg && <p className="erro" style={{ width: '100%' }}>{msg}</p>}
+      </Formulario>
       {saldos.length === 0 && <p className="vazio">Ainda não há pontos acumulados.</p>}
       {[...saldos].sort((a, b) => b.pontos - a.pontos).map(x => (
         <div key={x.cliente_id} className="cartao linha"><strong>{nomeCli(x.cliente_id)}</strong><span className="numero">{x.pontos} pts</span></div>
@@ -1224,7 +1363,7 @@ function AcoesVale({ vale, idCaptura, telefone }) {
   )
 }
 
-function GerarVale() {
+function GerarVale({ onFechar }) {
   const novo = () => ({ cliente_id: '', de_nome: '', para_nome: '', valor: '', descricao: '', mensagem: '', condicoes: 'Apresente este vale no momento do atendimento.',
     expira_em: isoData(somaDias(new Date(), 180)), lancar: true, unidade_id: '', forma_id: '', parcelas: 1, recebido: true })
   const [f, setF] = useState(novo)
@@ -1266,18 +1405,16 @@ function GerarVale() {
   }
 
   if (criado) return (
-    <>
-      <h1>Vale gerado</h1>
+    <Janela titulo="Vale gerado" enorme onFechar={onFechar}>
       {erro && <p className="erro" style={{ marginBottom: 12 }}>{erro}</p>}
-      <PreviaVale vale={criado} idCaptura="vale-pdf-novo" />
+      <PreviaVale vale={criado} idCaptura="vale-pdf-novo" modal />
       <div style={{ margin: '18px 0' }}><AcoesVale vale={criado} idCaptura="vale-pdf-novo" telefone={criado.clientes?.telefone} /></div>
       <button className="leve" onClick={() => { setCriado(null); setF(novo()); setErro('') }}>Gerar outro vale</button>
-    </>
+    </Janela>
   )
   return (
-    <>
-      <h1>Gerar vale-presente</h1>
-      <div className="cartao">
+    <Janela titulo="Gerar vale-presente" enorme onFechar={onFechar}>
+      <div>
         <div className="campos">
           <label className="campo">Cliente que está comprando<Sel valor={f.cliente_id} onChange={escolherCliente} vazio="Opcional" opcoes={ref.clientes.map(c => [c.id, c.nome])} /></label>
           <label className="campo">Valor (R$)<input type="number" step="0.01" value={f.valor} onChange={campo('valor')} /></label>
@@ -1301,8 +1438,8 @@ function GerarVale() {
         <button style={{ marginTop: 16 }} onClick={salvar} disabled={salvando}>{salvando ? 'Gerando...' : 'Gerar vale'}</button>
       </div>
       <h2>Prévia</h2>
-      <PreviaVale vale={{ ...f, valor: Number(f.valor) || 0, codigo: 'GD-XXXXXX' }} />
-    </>
+      <PreviaVale vale={{ ...f, valor: Number(f.valor) || 0, codigo: 'GD-XXXXXX' }} modal />
+    </Janela>
   )
 }
 
@@ -1420,7 +1557,7 @@ function Vales() {
     ['gerar', 'Gerar vale-presente', 'vale', 'Crie o vale, veja a arte e gere o PDF para enviar'],
     ['emitidos', 'Vales emitidos', 'agenda', 'Acompanhe a validade, o saldo e dê baixa'],
   ]
-  if (!sec) return (
+  if (!sec || sec === 'gerar') return (
     <>
       <h1>Vale-presentes</h1>
       <p className="vazio" style={{ marginTop: -6, marginBottom: 22 }}>Escolha o que deseja fazer.</p>
@@ -1433,19 +1570,19 @@ function Vales() {
           </button>
         ))}
       </div>
+      {sec === 'gerar' && <GerarVale onFechar={() => setSec(null)} />}
     </>
   )
   return (
     <div className="sec" key={sec}>
       <button className="leve" style={{ marginBottom: 18 }} onClick={() => setSec(null)}>← Vale-presentes</button>
-      {sec === 'gerar' && <GerarVale />}
       {sec === 'emitidos' && <ValesEmitidos />}
     </div>
   )
 }
 
 const H0 = 7, H1 = 20, PX = 56
-function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir, modelos }) {
+function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir, onEditar, modelos }) {
   const dia = dias[sel]
   const doDia = itens.filter(i => new Date(i.inicio).toDateString() === dia.toDateString())
   const horas = Array.from({ length: H1 - H0 + 1 }, (_, k) => H0 + k)
@@ -1469,6 +1606,7 @@ function Grade({ dias, sel, setSel, itens, colunas, onStatus, onExcluir, modelos
                   style={{ top: min / 60 * PX, height: Math.max(dur / 60 * PX, 30), borderLeftColor: cor, background: cor + '26' }}>
                   <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
                   <small>{nomesServicos(i)} · {ROTULO[i.status]}</small>
+                  <button className="excluir" onClick={() => onEditar(i)}>Editar</button>
                   <button className="excluir" onClick={() => onExcluir(i)}>Excluir</button>
                   <Zaps a={i} modelos={modelos} />
                   <select value={i.status} onChange={e => onStatus(i, e.target.value)}>
@@ -1517,10 +1655,9 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
   }, [])
 
   const carregar = async () => {
-    const { data, error: erroAg } = await db.from('agendamentos')
-      .select('*, clientes(nome, telefone), servicos!servico_id(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, servicos(nome))')
+    const { data } = await db.from('agendamentos')
+      .select('*, clientes(nome, telefone), servicos(nome), usuarios(nome), unidades(nome, cor, endereco), agendamento_servicos(servico_id, preco_cobrado, servicos(nome))')
       .gte('inicio', semana.toISOString()).lt('inicio', somaDias(semana, 7).toISOString()).order('inicio')
-    if (erroAg) { console.error('Erro ao carregar agendamentos:', erroAg); setErro('Erro ao carregar agenda: ' + erroAg.message) }
     setItens(data || [])
     const ids = (data || []).map(i => i.id)
     if (ids.length) {
@@ -1540,12 +1677,19 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
     const fim = new Date(ini.getTime() + minutos * 60000)
     const h = ref.unidades.find(u => u.id === novo.unidade_id)?.horario_funcionamento
     if (h?.abre && h?.fecha && (fmtHora(ini) < h.abre || fmtHora(fim) > h.fecha)) return setErro(`Fora do horário de funcionamento da unidade (${h.abre} às ${h.fecha}).`)
-    const { data: novoAg, error } = await db.from('agendamentos').insert({
+    const campos = {
       cliente_id: novo.cliente_id, servico_id: novo.servico_id, unidade_id: novo.unidade_id,
       profissional_id: novo.profissional_id, inicio: ini.toISOString(), fim: fim.toISOString(),
-    }).select().single()
+    }
+    const { data: novoAg, error } = novo.id
+      ? await db.from('agendamentos').update(campos).eq('id', novo.id).select().single()
+      : await db.from('agendamentos').insert(campos).select().single()
     if (error) return setErro(error.code === '23P01' ? 'Esse horário já está ocupado para esta profissional.' : 'Não foi possível salvar. Tente de novo.')
-    if (extrasIds.length) await db.from('agendamento_servicos').insert(extrasIds.map((id, k) => ({ agendamento_id: novoAg.id, servico_id: id, ordem: k + 1 })))
+    await db.from('agendamento_servicos').upsert([novo.servico_id, ...extrasIds].map((id, k) => ({
+      agendamento_id: novoAg.id, servico_id: id, ordem: k,
+      preco_cobrado: Number(novo.precos?.[id] ?? precoVigente(ref.servicos.find(x => x.id === id))) || 0,
+    })), { onConflict: 'agendamento_id,servico_id' })
+    if (novo.id) await db.from('agendamento_servicos').delete().eq('agendamento_id', novo.id).not('servico_id', 'in', `(${[novo.servico_id, ...extrasIds].join(',')})`)
     setNovo(null); setErro(''); setAviso(''); carregar()
   }
   const abrirProximo = a => {
@@ -1562,7 +1706,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
     setNovo(null); setErro('')
     setPagto({
       a, desconto: '', tipoDesc: 'valor', forma_id: '', parcelas: 1, data: isoData(new Date()), recebido: true,
-      linhas: (a.agendamento_servicos?.length ? a.agendamento_servicos.map(x => x.servico_id) : [a.servico_id]).map(id => ({ servico_id: id, preco: precoVigente(ref.servicos.find(x => x.id === id)) })),
+      linhas: (a.agendamento_servicos?.length ? a.agendamento_servicos : [{ servico_id: a.servico_id }]).map(x => ({ servico_id: x.servico_id, preco: x.preco_cobrado ?? precoVigente(ref.servicos.find(sv => sv.id === x.servico_id)) })),
     })
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -1595,10 +1739,22 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
     setPagto(null); setErro(''); carregar(); abrirProximo(a)
   }
 
+  const editar = a => {
+    const rows = a.agendamento_servicos?.length ? a.agendamento_servicos : [{ servico_id: a.servico_id }]
+    const ids = [a.servico_id, ...rows.map(x => x.servico_id).filter(id => id !== a.servico_id)]
+    setNovo({
+      id: a.id, cliente_id: a.cliente_id, servico_id: ids[0], extras: ids.slice(1), unidade_id: a.unidade_id, profissional_id: a.profissional_id,
+      data: isoData(new Date(a.inicio)), hora: fmtHora(a.inicio),
+      precos: Object.fromEntries(rows.filter(x => x.preco_cobrado != null).map(x => [x.servico_id, x.preco_cobrado])),
+    })
+  }
   const excluir = a => setExcl({ id: a.id, titulo: `Atendimento de ${a.clientes?.nome} em ${dataBr(a.inicio)} às ${fmtHora(a.inicio)}.` })
   const dias = [0, 1, 2, 3, 4, 5, 6].map(n => somaDias(semana, n))
   const visiveis = itens.filter(i => (!fUnidade || i.unidade_id === fUnidade) && (!fProf || i.profissional_id === fProf))
   const campo = k => v => setNovo({ ...novo, [k]: v })
+  const precoLinha = id => novo?.precos?.[id] ?? precoVigente(ref.servicos.find(x => x.id === id))
+  const totalNovo = novo ? [novo.servico_id, ...(novo.extras || [])].filter(Boolean).reduce((t, id) => t + (Number(precoLinha(id)) || 0), 0) : 0
+  const fecharNovo = () => { setNovo(null); setErro(''); setAviso('') }
   const tituloSemana = `${dias[0].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })} a ${dias[6].toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}`
 
   return (
@@ -1621,7 +1777,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
         const { sub, descValor, total } = totaisPagto(pagto)
         const linha = (k, campos) => setPagto({ ...pagto, linhas: pagto.linhas.map((l, j) => j === k ? { ...l, ...campos } : l) })
         return (
-          <div className="cartao">
+          <Janela titulo="Pagamento do atendimento" onFechar={() => { setPagto(null); setErro('') }}>
             <p style={{ margin: '0 0 12px' }}><strong>Atendimento concluído. Registre o pagamento de {pagto.a.clientes?.nome}.</strong></p>
             {pagto.linhas.map((l, k) => {
               const sv = ref.servicos.find(x => x.id === l.servico_id)
@@ -1649,33 +1805,48 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
               <button className="leve" onClick={() => { const a = pagto.a; setPagto(null); setErro(''); abrirProximo(a) }}>Pular por enquanto</button>
               {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
             </div>
-          </div>
+          </Janela>
         )
       })()}
 
       {novo && (
-        <div className="cartao form">
-          {aviso && <p style={{ width: '100%', margin: 0 }}><strong>{aviso}</strong></p>}
-          <Sel valor={novo.cliente_id} onChange={campo('cliente_id')} vazio="Cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} />
-          <Sel valor={novo.servico_id} onChange={campo('servico_id')} vazio="Serviço" opcoes={ref.servicos.map(s => [s.id, `${s.nome} (${s.duracao_min} min)`])} />
-          {(novo.extras || []).map((id, k) => (
-            <span key={k} className="form" style={{ gap: 6 }}>
-              <Sel valor={id} onChange={v => setNovo({ ...novo, extras: novo.extras.map((x, j) => j === k ? v : x) })} vazio="Outro procedimento" opcoes={ref.servicos.map(sv => [sv.id, `${sv.nome} (${sv.duracao_min} min)`])} />
-              <button className="excluir" onClick={() => setNovo({ ...novo, extras: novo.extras.filter((_, j) => j !== k) })}>Remover</button>
-            </span>
-          ))}
-          <button className="leve" onClick={() => setNovo({ ...novo, extras: [...(novo.extras || []), ''] })}>+ Procedimento</button>
-          <Sel valor={novo.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
-          {usuario.perfil === 'admin' && <Sel valor={novo.profissional_id} onChange={campo('profissional_id')} vazio="Profissional" opcoes={ref.profs.map(p => [p.id, p.nome])} />}
-          <input type="date" value={novo.data} onChange={e => campo('data')(e.target.value)} />
-          <input type="time" value={novo.hora} onChange={e => campo('hora')(e.target.value)} />
-          <button onClick={salvar}>Salvar atendimento</button>
-          <button className="leve" onClick={() => { setNovo(null); setErro(''); setAviso('') }}>Cancelar</button>
-          {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
+        <div className="fundo">
+          <div className="modal largo" onClick={e => e.stopPropagation()}>
+            <h2>{novo.id ? 'Editar atendimento' : 'Novo atendimento'}</h2>
+            {aviso && <p style={{ marginTop: -6 }}><strong>{aviso}</strong></p>}
+            <div className="campos">
+              <label className="campo cheio">Cliente<Sel valor={novo.cliente_id} onChange={campo('cliente_id')} vazio="Escolha a cliente" opcoes={ref.clientes.map(c => [c.id, c.nome])} /></label>
+              <label className="campo">Unidade<Sel valor={novo.unidade_id} onChange={campo('unidade_id')} vazio="Escolha a unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} /></label>
+              {usuario.perfil === 'admin' && <label className="campo">Profissional<Sel valor={novo.profissional_id} onChange={campo('profissional_id')} vazio="Escolha a profissional" opcoes={ref.profs.map(p => [p.id, p.nome])} /></label>}
+              <label className="campo">Data<input type="date" value={novo.data} onChange={e => campo('data')(e.target.value)} /></label>
+              <label className="campo">Hora<input type="time" value={novo.hora} onChange={e => campo('hora')(e.target.value)} /></label>
+            </div>
+            <h2 style={{ marginTop: 18 }}>Procedimentos</h2>
+            <p className="vazio" style={{ marginTop: -6 }}>O preço padrão vem preenchido e pode ser alterado.</p>
+            {[novo.servico_id, ...(novo.extras || [])].map((id, k) => {
+              const sv = ref.servicos.find(x => x.id === id)
+              const trocar = v => k === 0 ? setNovo({ ...novo, servico_id: v }) : setNovo({ ...novo, extras: novo.extras.map((x, j) => j === k - 1 ? v : x) })
+              return (
+                <div key={k} className="form" style={{ marginBottom: 8 }}>
+                  <Sel valor={id} onChange={trocar} vazio={k === 0 ? 'Procedimento' : 'Outro procedimento'} opcoes={ref.servicos.map(x => [x.id, `${x.nome} (${x.duracao_min} min)`])} />
+                  <label>R$ <input type="number" step="0.01" style={{ width: 110 }} disabled={!id} value={precoLinha(id)} onChange={e => setNovo({ ...novo, precos: { ...(novo.precos || {}), [id]: e.target.value } })} /></label>
+                  {promoAtiva(sv) && <span className="selo selo-ativo" title={textoPromo(sv)}>Promoção</span>}
+                  {k > 0 && <button className="excluir" onClick={() => setNovo({ ...novo, extras: novo.extras.filter((_, j) => j !== k - 1) })}>Remover</button>}
+                </div>
+              )
+            })}
+            <button className="leve" onClick={() => setNovo({ ...novo, extras: [...(novo.extras || []), ''] })}>+ Procedimento</button>
+            <p style={{ margin: '14px 0 0' }}>Total dos procedimentos: <strong>{brl(totalNovo)}</strong></p>
+            {erro && <p className="erro" style={{ marginTop: 10 }}>{erro}</p>}
+            <div className="form" style={{ marginTop: 16 }}>
+              <button onClick={salvar}>Salvar atendimento</button>
+              <button className="leve" onClick={fecharNovo}>Cancelar</button>
+            </div>
+          </div>
         </div>
       )}
 
-      {modo === 'dia' && <Grade dias={dias} sel={diaSel} setSel={setDiaSel} itens={visiveis} colunas={fProf ? ref.profs.filter(p => p.id === fProf) : ref.profs} onStatus={mudarStatus} onExcluir={excluir} modelos={modelos} />}
+      {modo === 'dia' && <Grade dias={dias} sel={diaSel} setSel={setDiaSel} itens={visiveis} colunas={fProf ? ref.profs.filter(p => p.id === fProf) : ref.profs} onStatus={mudarStatus} onExcluir={excluir} onEditar={editar} modelos={modelos} />}
       <div className="semana" hidden={modo === 'dia'}>
         {dias.map(d => (
           <div key={d.toISOString()} className="dia">
@@ -1684,6 +1855,7 @@ function Agenda({ usuario, prefill, limparPrefill, irParaReceber }) {
               <div key={i.id} className={'atend' + (['cancelado', 'faltou'].includes(i.status) ? ' apagado' : '')} style={{ borderLeft: `5px solid ${i.unidades?.cor || '#C4677F'}` }}>
                 <strong>{fmtHora(i.inicio)}</strong> {i.clientes?.nome}<br />
                 <small>{nomesServicos(i)} · {i.usuarios?.nome}</small>
+                <button className="excluir" title="Editar atendimento e preços" onClick={() => editar(i)}>Editar</button>
                 <button className="excluir" title="Excluir atendimento" onClick={() => excluir(i)}>Excluir</button>
                 <Zaps a={i} modelos={modelos} />
                 <select value={i.status} onChange={e => mudarStatus(i, e.target.value)}>
@@ -1713,6 +1885,7 @@ function Equipe({ eu }) {
   const [unidades, setUnidades] = useState([])
   const [vinc, setVinc] = useState([])
   const [f, setF] = useState({ email: '', nome: '', perfil: 'profissional', unidades: [] })
+  const [editM, setEditM] = useState(null)
   const [msg, setMsg] = useState('')
   const carregar = async () => {
     const [m, u, v] = await Promise.all([
@@ -1727,7 +1900,7 @@ function Equipe({ eu }) {
     if (!f.email.trim() || !f.nome.trim()) return setMsg('Informe o e-mail do login e o nome.')
     const { error } = await db.rpc('adicionar_membro', { p_email: f.email.trim(), p_nome: f.nome.trim(), p_perfil: f.perfil, p_unidades: f.unidades })
     if (error) return setMsg(error.message)
-    setMsg(''); setF({ email: '', nome: '', perfil: 'profissional', unidades: [] }); carregar()
+    setMsg(''); setF({ email: '', nome: '', perfil: 'profissional', unidades: [] }); carregar(); fecharFormularios()
   }
   const marcarForm = id => setF({ ...f, unidades: f.unidades.includes(id) ? f.unidades.filter(x => x !== id) : [...f.unidades, id] })
   const alternarUnidade = async (m, uid, marcado) => {
@@ -1739,7 +1912,7 @@ function Equipe({ eu }) {
   return (
     <>
       <h1>Equipe</h1>
-      <div className="cartao form">
+      <Formulario titulo="Adicionar à equipe" botao="+ Adicionar pessoa">
         <p style={{ width: '100%', margin: 0 }} className="vazio">Primeiro crie o login da pessoa no Supabase (Authentication &gt; Users). Depois informe aqui o mesmo e-mail.</p>
         <input placeholder="E-mail do login" value={f.email} onChange={e => setF({ ...f, email: e.target.value })} />
         <input placeholder="Nome" value={f.nome} onChange={e => setF({ ...f, nome: e.target.value })} />
@@ -1747,22 +1920,16 @@ function Equipe({ eu }) {
         {unidades.map(u => <label key={u.id}><input type="checkbox" checked={f.unidades.includes(u.id)} onChange={() => marcarForm(u.id)} /> {u.nome}</label>)}
         <button onClick={adicionar}>Adicionar à equipe</button>
         {msg && <p className="erro" style={{ width: '100%' }}>{msg}</p>}
-      </div>
+      </Formulario>
+      {editM && <EditarMembro membro={editM} unidades={unidades} eu={eu} marcadas={vinc.filter(v => v.usuario_id === editM.id).map(v => v.unidade_id)}
+        onFechar={() => setEditM(null)} onSalvo={() => { setEditM(null); carregar() }} />}
       {membros.map(m => (
-        <div key={m.id} className="cartao" style={{ opacity: m.ativo ? 1 : .55 }}>
-          <div className="linha">
-            <strong>{m.nome}{m.id === eu && ' (você)'}</strong>
-            <div className="form">
-              <Sel valor={m.perfil} onChange={v => atualizar(m, { perfil: v })} vazio="Perfil" opcoes={[['admin', 'Administração'], ['profissional', 'Profissional']]} />
-              {m.id !== eu && <button className="leve" onClick={() => atualizar(m, { ativo: !m.ativo })}>{m.ativo ? 'Desativar' : 'Reativar'}</button>}
-            </div>
+        <div key={m.id} className="cartao linha" style={{ opacity: m.ativo ? 1 : .55 }}>
+          <div>
+            <strong>{m.nome}{m.id === eu && ' (você)'}</strong><br />
+            <small>{m.perfil === 'admin' ? 'Administração' : 'Profissional'} · {unidades.filter(u => vinc.some(v => v.usuario_id === m.id && v.unidade_id === u.id)).map(u => u.nome).join(', ') || 'Sem unidade'}{!m.ativo && ' · Desativado'}</small>
           </div>
-          <div className="form" style={{ marginTop: 8 }}>
-            {unidades.map(u => {
-              const marcado = vinc.some(v => v.usuario_id === m.id && v.unidade_id === u.id)
-              return <label key={u.id}><input type="checkbox" checked={marcado} onChange={() => alternarUnidade(m, u.id, marcado)} /> {u.nome}</label>
-            })}
-          </div>
+          <button className="leve" onClick={() => setEditM(m)}>Editar</button>
         </div>
       ))}
     </>
@@ -1771,16 +1938,17 @@ function Equipe({ eu }) {
 
 function Formas() {
   const [lista, setLista] = useState([])
-  useEffect(() => { db.from('formas_pagamento').select('*').order('nome').then(({ data }) => setLista(data || [])) }, [])
-  const salvar = (p, campo, v) => db.from('formas_pagamento').update({ [campo]: Number(v) || 0 }).eq('id', p.id)
+  const [edit, setEdit] = useState(null)
+  const carregar = () => db.from('formas_pagamento').select('*').order('nome').then(({ data }) => setLista(data || []))
+  useEffect(() => { carregar() }, [])
   return (
     <>
       <h1>Formas de pagamento</h1>
+      {edit && <EditarForma forma={edit} onFechar={() => setEdit(null)} onSalvo={() => { setEdit(null); carregar() }} />}
       {lista.map(p => (
         <div key={p.id} className="cartao linha">
-          <strong>{p.nome}</strong>
-          <small>Taxa <input type="number" step="0.01" style={{ width: 80, padding: 4 }} defaultValue={p.taxa_percentual} onBlur={e => salvar(p, 'taxa_percentual', e.target.value)} /> %
-            · Cai em <input type="number" style={{ width: 70, padding: 4 }} defaultValue={p.dias_para_receber} onBlur={e => salvar(p, 'dias_para_receber', e.target.value)} /> dias</small>
+          <div><strong>{p.nome}</strong><br /><small>Taxa de {p.taxa_percentual}% · o dinheiro cai em {p.dias_para_receber} dia(s)</small></div>
+          <button className="leve" onClick={() => setEdit(p)}>Editar</button>
         </div>
       ))}
     </>
@@ -1955,7 +2123,8 @@ function Financeiro({ prefill, limparPrefill }) {
       {aba !== 'resumo' && <div style={{ marginBottom: 12 }}><button onClick={aba === 'receber' ? () => novoRec() : novoPag}>{aba === 'receber' ? 'Novo recebimento' : 'Nova despesa'}</button></div>}
 
       {form && (
-        <div className="cartao form">
+        <Janela titulo={form.tipo === 'receber' ? 'Novo recebimento' : 'Nova despesa'} onFechar={() => { setForm(null); setErro('') }}>
+        <div className="form">
           <Sel valor={form.unidade_id} onChange={campo('unidade_id')} vazio="Unidade" opcoes={ref.unidades.map(u => [u.id, u.nome])} />
           <input placeholder="Descrição" value={form.descricao} onChange={e => campo('descricao')(e.target.value)} />
           <input type="number" step="0.01" placeholder="Valor total (R$)" value={form.valor} onChange={e => campo('valor')(e.target.value)} />
@@ -1977,6 +2146,7 @@ function Financeiro({ prefill, limparPrefill }) {
           <button className="leve" onClick={() => { setForm(null); setErro('') }}>Cancelar</button>
           {erro && <p className="erro" style={{ width: '100%' }}>{erro}</p>}
         </div>
+        </Janela>
       )}
 
       {aba === 'receber' && (R.length === 0 ? <p className="vazio">Nada a receber ou recebido neste mês.</p> : R.map(i => {
